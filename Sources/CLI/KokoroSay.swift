@@ -104,7 +104,7 @@ struct KokoroSay: ParsableCommand {
             print("Wrote \(output)")
         }
 
-        if play || output == nil {
+        if play || (output == nil && !debug) {
             try playAudio(samples: result.samples)
         }
     }
@@ -190,6 +190,7 @@ struct KokoroSay: ParsableCommand {
     // MARK: - Debug
 
     private func printDebugInfo(result: SynthesisResult) {
+        print("Phonemes: \(result.phonemes)")
         if let bucket = result.bucket {
             print("Selected bucket: \(bucket.modelName) (\(bucket.maxTokens) max tokens)")
         }

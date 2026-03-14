@@ -13,3 +13,4 @@ verify_output/
 models_export/
 research/results.tsv
 research/run.log
+__pycache__/

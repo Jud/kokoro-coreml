@@ -265,9 +265,9 @@ public final class KokoroEngine: @unchecked Sendable {
 
         let elapsed = CFAbsoluteTimeGetCurrent() - t0
         return SynthesisResult(
-            samples: allSamples, tokenDurations: allDurations,
-            tokenCount: totalTokens, synthesisTime: elapsed,
-            bucket: selectedBucket)
+            samples: allSamples, phonemes: fullPhonemes,
+            tokenDurations: allDurations, tokenCount: totalTokens,
+            synthesisTime: elapsed, bucket: selectedBucket)
     }
 
     // MARK: - Voices
@@ -545,6 +545,9 @@ public struct SynthesisResult: Sendable {
     /// 24kHz mono PCM float samples.
     public let samples: [Float]
 
+    /// IPA phoneme string produced by the G2P pipeline.
+    public let phonemes: String
+
     /// Per-token predicted durations in audio frames (at 24kHz).
     /// Useful for mapping playback position back to input tokens.
     public let tokenDurations: [Int]
@@ -572,12 +575,14 @@ public struct SynthesisResult: Sendable {
     /// Creates a new synthesis result.
     public init(
         samples: [Float],
+        phonemes: String = "",
         tokenDurations: [Int] = [],
         tokenCount: Int,
         synthesisTime: TimeInterval,
         bucket: ModelBucket? = nil
     ) {
         self.samples = samples
+        self.phonemes = phonemes
         self.tokenDurations = tokenDurations
         self.tokenCount = tokenCount
         self.synthesisTime = synthesisTime
