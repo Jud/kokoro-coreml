@@ -1,0 +1,10 @@
+Hello world, this is a test of Kokoro text to speech.
+I think I'm going to have some chocolate pie.
+The quick brown fox jumps over the lazy dog.
+She sells seashells by the seashore.
+How much wood would a woodchuck chuck if a woodchuck could chuck wood?
+It was the best of times, it was the worst of times.
+To be, or not to be, that is the question.
+The temperature today is 72 degrees Fahrenheit.
+Please call 555-1234 for more information.
+Dr. Smith arrived at 3:30 PM on January 15th, 2024.
