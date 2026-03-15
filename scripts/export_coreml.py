@@ -336,18 +336,20 @@ def patch_sinegen_for_export(model):
     # Apply inlined _f02sine to the original class so existing instances use it
     OriginalSineGen._f02sine = SineGen._f02sine
 
-    # Patch forward to use deterministic noise (zeros instead of randn)
-    # so PyTorch reference and CoreML produce identical outputs.
-    _orig_forward = OriginalSineGen.forward
-    def _deterministic_forward(self, f0):
-        # Temporarily replace randn_like with zeros_like
-        _real_randn = torch.randn_like
-        torch.randn_like = torch.zeros_like
-        try:
-            return _orig_forward(self, f0)
-        finally:
-            torch.randn_like = _real_randn
-    OriginalSineGen.forward = _deterministic_forward
+    # Patch AdaIN1d to avoid broadcast multiply (not ANE-compatible).
+    # Expand gamma/beta to match x's time dimension before multiplying.
+    from kokoro.istftnet import AdaIN1d
+    def _adain_forward_no_broadcast(self, x, s):
+        h = self.fc(s)
+        h = h.view(h.size(0), h.size(1), 1)
+        gamma, beta = torch.chunk(h, chunks=2, dim=1)
+        # Repeat to [B, C, T] — physical copy, not view.
+        # Avoids MultiplyBroadcastableLayer which is not ANE-compatible.
+        T = x.shape[-1]
+        gamma = gamma.repeat(1, 1, T)
+        beta = beta.repeat(1, 1, T)
+        return (1 + gamma) * self.norm(x) + beta
+    AdaIN1d.forward = _adain_forward_no_broadcast
 
     # Helper to set external phases on all SineGen instances
     def set_phases(module, phases):
