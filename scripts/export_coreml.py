@@ -160,14 +160,6 @@ class CustomSTFT(nn.Module):
         self.register_buffer("weight_backward_imag",
                              torch.from_numpy(idft_sin * inv_window).float().unsqueeze(1))
 
-        # Fused inverse weight: single conv_transpose1d eliminates
-        # cancellation error from separate real_rec - imag_rec subtraction
-        self.register_buffer("weight_backward_fused",
-                             torch.cat([
-                                 torch.from_numpy(idft_cos * inv_window).float().unsqueeze(1),
-                                 torch.from_numpy(-idft_sin * inv_window).float().unsqueeze(1),
-                             ], dim=0))
-
     def transform(self, waveform):
         if self.center:
             pad_len = self.n_fft // 2
@@ -186,9 +178,11 @@ class CustomSTFT(nn.Module):
     def inverse(self, magnitude, phase, length=None):
         real_part = magnitude * torch.cos(phase)
         imag_part = magnitude * torch.sin(phase)
-        combined = torch.cat([real_part, imag_part], dim=1)
-        waveform = F.conv_transpose1d(combined, self.weight_backward_fused,
+        real_rec = F.conv_transpose1d(real_part, self.weight_backward_real,
                                       bias=None, stride=self.hop_length, padding=0)
+        imag_rec = F.conv_transpose1d(imag_part, self.weight_backward_imag,
+                                      bias=None, stride=self.hop_length, padding=0)
+        waveform = real_rec - imag_rec
         if self.center:
             pad_len = self.n_fft // 2
             waveform = waveform[..., pad_len:-pad_len]
@@ -201,103 +195,6 @@ class CustomSTFT(nn.Module):
         return self.inverse(mag, phase, length=x.shape[-1])
 
 register_missing_torch_ops()
-
-
-# ---------------------------------------------------------------------------
-# Pipeline split modules for ANE-compatible decoder
-# ---------------------------------------------------------------------------
-class GeneratorFrontEnd(nn.Module):
-    """SineGen + STFT transform → har conditioning.
-
-    This portion contains atan2 + correction_mask which must run on CPU.
-    Split out so the rest of the generator can run on ANE.
-    """
-    def __init__(self, generator):
-        super().__init__()
-        self.f0_upsamp = generator.f0_upsamp
-        self.m_source = generator.m_source
-        self.stft = generator.stft
-
-    def forward(self, f0_curve):
-        f0 = self.f0_upsamp(f0_curve[:, None]).transpose(1, 2)
-        har_source, noi_source, uv = self.m_source(f0)
-        har_source = har_source.transpose(1, 2).squeeze(1)
-        har_spec, har_phase = self.stft.transform(har_source)
-        har = torch.cat([har_spec, har_phase], dim=1)
-        return har
-
-
-class GeneratorBackEnd(nn.Module):
-    """Upsampling cascade + inverse STFT → audio.
-
-    Takes precomputed har conditioning. No atan2 — runs fully on ANE.
-    """
-    def __init__(self, generator):
-        super().__init__()
-        self.num_upsamples = generator.num_upsamples
-        self.num_kernels = generator.num_kernels
-        self.noise_convs = generator.noise_convs
-        self.noise_res = generator.noise_res
-        self.ups = generator.ups
-        self.resblocks = generator.resblocks
-        self.reflection_pad = generator.reflection_pad
-        self.conv_post = generator.conv_post
-        self.post_n_fft = generator.post_n_fft
-        self.stft = generator.stft
-
-    def forward(self, x, s, har):
-        for i in range(self.num_upsamples):
-            x = F.leaky_relu(x, negative_slope=0.1)
-            x_source = self.noise_convs[i](har)
-            x_source = self.noise_res[i](x_source, s)
-            x = self.ups[i](x)
-            if i == self.num_upsamples - 1:
-                x = self.reflection_pad(x)
-            x = x + x_source
-            xs = None
-            for j in range(self.num_kernels):
-                if xs is None:
-                    xs = self.resblocks[i * self.num_kernels + j](x, s)
-                else:
-                    xs += self.resblocks[i * self.num_kernels + j](x, s)
-            x = xs / self.num_kernels
-        x = F.leaky_relu(x)
-        x = self.conv_post(x)
-        spec = torch.exp(x[:, :self.post_n_fft // 2 + 1, :])
-        phase = torch.sin(x[:, self.post_n_fft // 2 + 1:, :])
-        return self.stft.inverse(spec, phase)
-
-
-class DecoderBackEnd(nn.Module):
-    """Full decoder with precomputed har conditioning.
-
-    Decoder preprocessing (F0_conv, N_conv, encode, decode blocks) +
-    GeneratorBackEnd. No atan2 — runs fully on ANE.
-    """
-    def __init__(self, decoder):
-        super().__init__()
-        self.F0_conv = decoder.F0_conv
-        self.N_conv = decoder.N_conv
-        self.encode = decoder.encode
-        self.decode = decoder.decode
-        self.asr_res = decoder.asr_res
-        self.gen_backend = GeneratorBackEnd(decoder.generator)
-
-    def forward(self, asr, F0_curve, N, s, har):
-        F0 = self.F0_conv(F0_curve.unsqueeze(1))
-        N_out = self.N_conv(N.unsqueeze(1))
-        x = torch.cat([asr, F0, N_out], axis=1)
-        x = self.encode(x, s)
-        asr_res = self.asr_res(asr)
-        res = True
-        for block in self.decode:
-            if res:
-                x = torch.cat([x, asr_res, F0, N_out], axis=1)
-            x = block(x, s)
-            if block.upsample_type != "none":
-                res = False
-        return self.gen_backend(x, s, har)
-
 
 # ---------------------------------------------------------------------------
 # Model config
@@ -335,21 +232,6 @@ def patch_sinegen_for_export(model):
 
     # Apply inlined _f02sine to the original class so existing instances use it
     OriginalSineGen._f02sine = SineGen._f02sine
-
-    # Patch AdaIN1d to avoid broadcast multiply (not ANE-compatible).
-    # Expand gamma/beta to match x's time dimension before multiplying.
-    from kokoro.istftnet import AdaIN1d
-    def _adain_forward_no_broadcast(self, x, s):
-        h = self.fc(s)
-        h = h.view(h.size(0), h.size(1), 1)
-        gamma, beta = torch.chunk(h, chunks=2, dim=1)
-        # Repeat to [B, C, T] — physical copy, not view.
-        # Avoids MultiplyBroadcastableLayer which is not ANE-compatible.
-        T = x.shape[-1]
-        gamma = gamma.repeat(1, 1, T)
-        beta = beta.repeat(1, 1, T)
-        return (1 + gamma) * self.norm(x) + beta
-    AdaIN1d.forward = _adain_forward_no_broadcast
 
     # Helper to set external phases on all SineGen instances
     def set_phases(module, phases):
