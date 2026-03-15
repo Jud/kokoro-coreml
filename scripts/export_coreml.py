@@ -116,7 +116,7 @@ class SineGen(nn.Module):
 
 class CustomSTFT(nn.Module):
     def __init__(self, filter_length=800, hop_length=200, win_length=800,
-                 window="hann", center=True, pad_mode="reflect"):
+                 window="hann", center=True, pad_mode="replicate"):
         super().__init__()
         self.filter_length = filter_length
         self.hop_length = hop_length
@@ -160,7 +160,8 @@ class CustomSTFT(nn.Module):
         self.register_buffer("weight_backward_imag",
                              torch.from_numpy(idft_sin * inv_window).float().unsqueeze(1))
 
-        # Fused inverse weight: [real_weights; -imag_weights] for single conv_transpose1d
+        # Fused inverse weight: single conv_transpose1d eliminates
+        # cancellation error from separate real_rec - imag_rec subtraction
         self.register_buffer("weight_backward_fused",
                              torch.cat([
                                  torch.from_numpy(idft_cos * inv_window).float().unsqueeze(1),
@@ -185,9 +186,6 @@ class CustomSTFT(nn.Module):
     def inverse(self, magnitude, phase, length=None):
         real_part = magnitude * torch.cos(phase)
         imag_part = magnitude * torch.sin(phase)
-        # Fused: single conv_transpose1d with [real; imag] input and
-        # [real_weights; -imag_weights] kernel. Mathematically identical
-        # to separate real_rec - imag_rec but one op instead of three.
         combined = torch.cat([real_part, imag_part], dim=1)
         waveform = F.conv_transpose1d(combined, self.weight_backward_fused,
                                       bias=None, stride=self.hop_length, padding=0)
