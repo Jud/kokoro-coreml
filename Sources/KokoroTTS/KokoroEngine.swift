@@ -299,7 +299,8 @@ public final class KokoroEngine: @unchecked Sendable {
         var mergedIds: [[Int]] = []
         var currentIds: [Int] = []
         for ids in tokenized {
-            let combined = currentIds.isEmpty
+            let combined =
+                currentIds.isEmpty
                 ? ids
                 : Array(currentIds.dropLast()) + Array(ids.dropFirst())
             if combined.count <= maxTokens {
@@ -330,9 +331,9 @@ public final class KokoroEngine: @unchecked Sendable {
         guard phonemes.count > maxPhonemes else { return [phonemes] }
 
         let waterfallSets: [Set<Character>] = [
-            Set("!.?\u{2026}"),   // sentence endings
-            Set(":;"),             // clause boundaries
-            Set(",\u{2014}"),      // phrase boundaries
+            Set("!.?\u{2026}"),  // sentence endings
+            Set(":;"),  // clause boundaries
+            Set(",\u{2014}"),  // phrase boundaries
         ]
 
         var chunks: [String] = []
@@ -422,7 +423,8 @@ public final class KokoroEngine: @unchecked Sendable {
         }
 
         let durations: [Int]
-        let predDur = output.featureValue(for: Feature.predDurClamped)?.multiArrayValue
+        let predDur =
+            output.featureValue(for: Feature.predDurClamped)?.multiArrayValue
             ?? output.featureValue(for: Feature.predDur)?.multiArrayValue
         if let predDur {
             durations = (0..<min(predDur.count, tokenIds.count)).map { predDur[$0].intValue }

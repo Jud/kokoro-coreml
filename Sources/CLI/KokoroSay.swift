@@ -48,7 +48,9 @@ struct KokoroSay: ParsableCommand {
 
     func validate() throws {
         guard KokoroEngine.speedRange.contains(speed) else {
-            throw ValidationError("Speed must be between \(KokoroEngine.speedRange.lowerBound) and \(KokoroEngine.speedRange.upperBound)")
+            throw ValidationError(
+                "Speed must be between \(KokoroEngine.speedRange.lowerBound) and \(KokoroEngine.speedRange.upperBound)"
+            )
         }
     }
 
@@ -208,7 +210,9 @@ struct KokoroSay: ParsableCommand {
 
         let duration = Double(totalFrames) / Double(KokoroEngine.sampleRate)
         let elapsed = CFAbsoluteTimeGetCurrent() - t0
-        print("[\(voice)] \(chunks) chunks, \(String(format: "%.1f", duration))s audio, \(Int(elapsed * 1000))ms total synth")
+        print(
+            "[\(voice)] \(chunks) chunks, \(String(format: "%.1f", duration))s audio, \(Int(elapsed * 1000))ms total synth"
+        )
 
         let sentinel = AVAudioPCMBuffer(pcmFormat: KokoroEngine.audioFormat, frameCapacity: 1)!
         sentinel.frameLength = 1
@@ -239,8 +243,10 @@ struct KokoroSay: ParsableCommand {
         for s in result.samples { globalPeak = max(globalPeak, abs(s)) }
         print(String(format: "\n  Global peak: %.3f", globalPeak))
         print(String(format: "  Total samples: %d (%.1fs)", result.samples.count, result.duration))
-        print(String(format: "  Token durations (%d): %@", result.tokenDurations.count,
-            result.tokenDurations.map(String.init).joined(separator: ", ")))
+        print(
+            String(
+                format: "  Token durations (%d): %@", result.tokenDurations.count,
+                result.tokenDurations.map(String.init).joined(separator: ", ")))
 
         let hopSize = KokoroEngine.hopSize
         var cumFrames = 0
@@ -251,8 +257,10 @@ struct KokoroSay: ParsableCommand {
             if startSample < endSample {
                 for j in startSample..<endSample { peak = max(peak, abs(result.samples[j])) }
             }
-            print(String(format: "    t%02d: dur=%2d  %6d-%6d  peak=%.3f",
-                i, dur, startSample, endSample, peak))
+            print(
+                String(
+                    format: "    t%02d: dur=%2d  %6d-%6d  peak=%.3f",
+                    i, dur, startSample, endSample, peak))
             cumFrames += dur
         }
     }

@@ -15,8 +15,10 @@ public enum ModelManager {
         for bundleIdentifier: String = Bundle.main.bundleIdentifier ?? "kokoro-tts"
     ) -> URL {
         let appSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory, in: .userDomainMask).first!
-        return appSupport
+            for: .applicationSupportDirectory, in: .userDomainMask
+        ).first!
+        return
+            appSupport
             .appendingPathComponent(bundleIdentifier)
             .appendingPathComponent("models")
             .appendingPathComponent("kokoro")

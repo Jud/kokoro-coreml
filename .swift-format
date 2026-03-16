@@ -1,0 +1,15 @@
+{
+    "version": 1,
+    "indentation": {
+        "spaces": 4
+    },
+    "lineLength": 110,
+    "respectsExistingLineBreaks": true,
+    "lineBreakBeforeControlFlowKeywords": false,
+    "lineBreakBeforeEachArgument": false,
+    "indentConditionalCompilationBlocks": true,
+    "maximumBlankLines": 1,
+    "rules": {
+        "AlwaysUseLowerCamelCase": false
+    }
+}

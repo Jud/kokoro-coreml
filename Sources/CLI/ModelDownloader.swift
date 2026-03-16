@@ -14,10 +14,14 @@ enum ModelDownloader {
             if let error {
                 result = .failure(error)
             } else if let data,
-                      let json = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
+                let json = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
+            {
                 // Find the latest release with a "models-" tag
-                if let release = json.first(where: { ($0["tag_name"] as? String)?.hasPrefix("models-") == true }),
-                   let tag = release["tag_name"] as? String {
+                if let release = json.first(where: {
+                    ($0["tag_name"] as? String)?.hasPrefix("models-") == true
+                }),
+                    let tag = release["tag_name"] as? String
+                {
                     result = .success(tag)
                 } else {
                     result = .failure(URLError(.resourceUnavailable))

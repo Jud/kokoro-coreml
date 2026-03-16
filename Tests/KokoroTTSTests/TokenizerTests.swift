@@ -13,7 +13,7 @@ struct TokenizerTests {
         let ids = tok.encode("a")
         #expect(ids.first == Tokenizer.bosId)
         #expect(ids.last == Tokenizer.eosId)
-        #expect(ids.count >= 3) // BOS + at least 1 token + EOS
+        #expect(ids.count >= 3)  // BOS + at least 1 token + EOS
     }
 
     @Test("Unknown characters silently dropped")

@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  format:
+    name: Format
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check formatting
+        run: swift format lint --strict --ignore-unparsable-files --recursive Sources Tests
+
+  test:
+    name: Test
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: .build
+          key: spm-${{ runner.os }}-${{ hashFiles('Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-
+      - name: Build
+        run: swift build
+      - name: Test
+        run: swift test --skip InferenceBenchmark
+
+  benchmark:
+    name: Benchmark
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: .build
+          key: spm-${{ runner.os }}-${{ hashFiles('Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-
+
+      - name: Cache models
+        id: model-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Application Support/kokoro-tts/models/kokoro
+          key: kokoro-models-v1
+
+      - name: Download models
+        if: steps.model-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          MODEL_DIR="$HOME/Library/Application Support/kokoro-tts/models/kokoro"
+          mkdir -p "$MODEL_DIR"
+          TAG=$(curl --fail -s https://api.github.com/repos/Jud/kokoro-tts-swift/releases \
+            | python3 -c "import sys,json; releases=json.load(sys.stdin); print(next(r['tag_name'] for r in releases if r['tag_name'].startswith('models-')))")
+          echo "Downloading models ($TAG)..."
+          curl --fail -L "https://github.com/Jud/kokoro-tts-swift/releases/download/$TAG/kokoro-models.tar.gz" \
+            | tar xz -C "$MODEL_DIR"
+
+      - name: Run benchmarks
+        run: |
+          swift test --filter "Performance|InferenceBenchmark" 2>&1 | tee benchmark-output.txt
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Benchmark Results" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          grep -E "^(Short|Medium|Long|G2P|Tokenizer|ChunkPhonemes):" benchmark-output.txt >> $GITHUB_STEP_SUMMARY || echo "No benchmark output captured" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY

@@ -1,3 +1,4 @@
+// swift-format-ignore-file
 // Originally from MisakiSwift by mlalma, Apache License 2.0
 // BART neural fallback replaced with CamelCase splitting + letter spelling.
 

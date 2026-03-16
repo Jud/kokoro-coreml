@@ -136,7 +136,7 @@ final class Lexicon {
 
         let stress: Double? =
             (word == word.lowercased()
-            ? nil : (word == word.uppercased() ? capStresses.1 : capStresses.0))
+                ? nil : (word == word.uppercased() ? capStresses.1 : capStresses.0))
         let res = getWord(word, tag: token.tag, stress: stress, ctx: ctx)
         if let phoneme = res.phoneme {
             return (
@@ -646,7 +646,9 @@ final class Lexicon {
             if pairs.count > 1 {
                 if pairs[1].0 == 0 {
                     pairs = Array(pairs.prefix(1))
-                } else if pairs[0].0 == 0 { pairs = Array(pairs.suffix(1)) }
+                } else if pairs[0].0 == 0 {
+                    pairs = Array(pairs.suffix(1))
+                }
             }
 
             for (i, (num, unit)) in pairs.enumerated() {
