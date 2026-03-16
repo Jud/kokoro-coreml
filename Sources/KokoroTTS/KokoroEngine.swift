@@ -1,13 +1,8 @@
 import Accelerate
-import AVFoundation
+@preconcurrency import AVFoundation
 import CoreML
 import Foundation
 import os
-
-// AVAudioPCMBuffer is safe to send across concurrency boundaries when each
-// buffer is freshly allocated and transferred (not shared). The Swift 6.2.1
-// toolchain lacks the conformance that 6.2.3 provides.
-extension AVAudioPCMBuffer: @unchecked @retroactive Sendable {}
 
 /// Model size bucket for automatic selection based on token count.
 public enum ModelBucket: String, CaseIterable, Sendable, Comparable {
