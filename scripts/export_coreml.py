@@ -44,29 +44,11 @@ class SineGen(nn.Module):
 
     def _f02sine(self, f0_values):
         # Instantaneous frequency as fraction of sample rate
-        # Fractional part of instantaneous frequency
         val = f0_values / self.sampling_rate
         rad_values = val - torch.floor(val)
 
-        # Random initial phase
-        if hasattr(self, '_external_phases') and self._external_phases is not None:
-            rand_ini = self._external_phases[:, :f0_values.shape[2]]
-        else:
-            rand_ini = torch.rand(f0_values.shape[0], f0_values.shape[2],
-                                  device=f0_values.device)
-
-        # Zero fundamental's phase offset
-        rand_ini = torch.cat([
-            torch.zeros(rand_ini.shape[0], 1, device=rand_ini.device),
-            rand_ini[:, 1:]
-        ], dim=1)
-
-        # Add phase offset to first time step
-        offset = F.pad(
-            rand_ini.unsqueeze(1),           # [B, 1, D]
-            (0, 0, 0, f0_values.shape[1] - 1)  # pad dim1: 0 left, L-1 right
-        )  # [B, L, D]
-        rad_values = rad_values + offset
+        # Phase offset is always zero (external_phases set to zeros).
+        # Skip the dead offset computation entirely.
 
         if not self.flag_for_pulse:
             K = int(self.upsample_scale)
