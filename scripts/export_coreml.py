@@ -121,13 +121,7 @@ class CustomSTFT(nn.Module):
         forward_real = dft_real * forward_window
         forward_imag = dft_imag * forward_window
 
-        self.register_buffer("weight_forward_real",
-                             torch.from_numpy(forward_real).float().unsqueeze(1))
-        self.register_buffer("weight_forward_imag",
-                             torch.from_numpy(forward_imag).float().unsqueeze(1))
-
-        # Fused forward weight: cat([W_real, W_imag], dim=0)
-        # Single conv1d produces both real and imag in one pass
+        # Fused forward weight: cat([W_real, W_imag]) — single conv1d for both
         self.register_buffer("weight_forward_fused",
                              torch.cat([
                                  torch.from_numpy(forward_real).float().unsqueeze(1),
@@ -140,17 +134,12 @@ class CustomSTFT(nn.Module):
         idft_sin = np.sin(angle_t).T
         inv_window = window_tensor.numpy() * inv_scale
 
-        self.register_buffer("weight_backward_real",
-                             torch.from_numpy(idft_cos * inv_window).float().unsqueeze(1))
-        self.register_buffer("weight_backward_imag",
-                             torch.from_numpy(idft_sin * inv_window).float().unsqueeze(1))
-
-        # Fused inverse weight: cat([W_real, -W_imag], dim=0)
-        # Eliminates separate subtraction and reduces two conv_transpose1d to one
-        fused_real = torch.from_numpy(idft_cos * inv_window).float().unsqueeze(1)
-        fused_imag = -torch.from_numpy(idft_sin * inv_window).float().unsqueeze(1)
+        # Fused inverse weight: cat([W_real, -W_imag]) — single conv_transpose1d
         self.register_buffer("weight_backward_fused",
-                             torch.cat([fused_real, fused_imag], dim=0))
+                             torch.cat([
+                                 torch.from_numpy(idft_cos * inv_window).float().unsqueeze(1),
+                                 -torch.from_numpy(idft_sin * inv_window).float().unsqueeze(1),
+                             ], dim=0))
 
     def transform(self, waveform):
         if self.center:
