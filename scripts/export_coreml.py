@@ -109,8 +109,7 @@ class CustomSTFT(nn.Module):
             window_tensor = F.pad(window_tensor, (0, self.n_fft - self.win_length))
         elif self.win_length > self.n_fft:
             window_tensor = window_tensor[:self.n_fft]
-        self.register_buffer("window", window_tensor)
-
+        # window_tensor used only during __init__ to construct DFT matrices
         n = np.arange(self.n_fft)
         k = np.arange(self.freq_bins)
         angle = 2 * np.pi * np.outer(k, n) / self.n_fft
