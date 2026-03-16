@@ -89,7 +89,8 @@ enum ModelDownloader {
             guard pct != lastPct else { return }
             lastPct = pct
             let filled = Int(progress.fractionCompleted * Double(barWidth))
-            let bar = String(repeating: "█", count: filled)
+            let bar =
+                String(repeating: "█", count: filled)
                 + String(repeating: "░", count: barWidth - filled)
             let bytes = task.countOfBytesReceived
             let mb = String(format: "%.0f", Double(bytes) / 1_000_000)
