@@ -83,18 +83,23 @@ enum ModelDownloader {
         }
 
         nonisolated(unsafe) var lastPct = -1
+        let barWidth = 30
         let observation = task.progress.observe(\.fractionCompleted) { progress, _ in
             let pct = Int(progress.fractionCompleted * 100)
-            if pct != lastPct {
-                lastPct = pct
-                fputs("\r  \(pct)%", stderr)
-            }
+            guard pct != lastPct else { return }
+            lastPct = pct
+            let filled = Int(progress.fractionCompleted * Double(barWidth))
+            let bar = String(repeating: "█", count: filled)
+                + String(repeating: "░", count: barWidth - filled)
+            let bytes = task.countOfBytesReceived
+            let mb = String(format: "%.0f", Double(bytes) / 1_000_000)
+            fputs("\r  \(bar) \(pct)% (\(mb) MB)", stderr)
         }
 
         task.resume()
         sem.wait()
         observation.invalidate()
-        fputs("\r      \r", stderr)
+        fputs("\n", stderr)
 
         try downloadResult.get()
 
