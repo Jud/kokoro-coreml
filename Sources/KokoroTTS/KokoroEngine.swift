@@ -11,26 +11,12 @@ public enum ModelBucket: String, CaseIterable, Sendable, Comparable {
     /// Medium utterances — 242 tokens max (~10s audio).
     case medium
 
-    /// Base name used for display and model file naming.
+    /// CoreML model bundle name (without .mlmodelc extension).
     public var modelName: String {
         switch self {
         case .small: "kokoro_21_5s"
         case .medium: "kokoro_24_10s"
         }
-    }
-
-    /// Frontend model bundle name for split pipeline.
-    var frontendModelName: String { modelName + "_frontend" }
-
-    /// Backend model bundle name for split pipeline.
-    var backendModelName: String { modelName + "_backend" }
-
-    /// Returns frontend and backend model URLs within a directory.
-    func modelURLs(in directory: URL) -> (frontend: URL, backend: URL) {
-        (
-            directory.appendingPathComponent(frontendModelName + ".mlmodelc"),
-            directory.appendingPathComponent(backendModelName + ".mlmodelc")
-        )
     }
 
     /// Maximum input token count for this bucket.
@@ -57,9 +43,9 @@ public enum ModelBucket: String, CaseIterable, Sendable, Comparable {
 
 /// High-quality text-to-speech engine using Kokoro-82M CoreML models.
 ///
-/// Uses a split pipeline per bucket: a CPU-only frontend (BERT + predictor +
-/// SineGen/STFT) and an ANE backend (decoder + generator + iSTFT) for ~12x
-/// faster inference vs the monolithic model.
+/// Uses unified end-to-end models (StyleTTS2 + iSTFTNet vocoder) with one
+/// CoreML model per bucket size. Runs on the Apple Neural Engine for 3.5x
+/// faster inference vs GPU.
 ///
 /// ```swift
 /// let engine = try KokoroEngine(modelDirectory: myModelPath)
@@ -101,17 +87,15 @@ public final class KokoroEngine: @unchecked Sendable {
         static let speed = "speed"
     }
 
-    /// Per-bucket CoreML models and pre-allocated input buffers.
+    /// Per-bucket CoreML model and pre-allocated buffers.
     private struct BucketResources {
-        let frontend: MLModel  // CPU_ONLY — BERT + predictor + SineGen/STFT
-        let backend: MLModel  // ALL/ANE — decoder + generator + iSTFT
-        let backendInputNames: Set<String>  // cached from backend model description
-
+        let model: MLModel
         let inputIds: MLMultiArray
         let mask: MLMultiArray
         let refS: MLMultiArray
         let randomPhases: MLMultiArray
         let speed: MLMultiArray
+        let hasSpeed: Bool
     }
 
     private static let logger = Logger(
@@ -155,32 +139,18 @@ public final class KokoroEngine: @unchecked Sendable {
 
         self.voiceStore = try VoiceStore(directory: modelDirectory.appendingPathComponent("voices"))
 
-        let fm = FileManager.default
+        let config = MLModelConfiguration()
+        config.computeUnits = .cpuAndNeuralEngine
+
         var resources: [ModelBucket: BucketResources] = [:]
         for bucket in ModelBucket.allCases {
-            let urls = bucket.modelURLs(in: modelDirectory)
-            guard fm.fileExists(atPath: urls.frontend.path),
-                fm.fileExists(atPath: urls.backend.path)
-            else { continue }
-
+            let url = modelDirectory.appendingPathComponent(bucket.modelName + ".mlmodelc")
+            guard FileManager.default.fileExists(atPath: url.path) else { continue }
             do {
                 let maxTokens = bucket.maxTokens
-
-                let cpuConfig = MLModelConfiguration()
-                cpuConfig.computeUnits = .cpuOnly
-                let frontendModel = try MLModel(
-                    contentsOf: urls.frontend, configuration: cpuConfig)
-
-                let aneConfig = MLModelConfiguration()
-                aneConfig.computeUnits = .cpuAndNeuralEngine
-                let backendModel = try MLModel(
-                    contentsOf: urls.backend, configuration: aneConfig)
-
+                let modelObj = try MLModel(contentsOf: url, configuration: config)
                 let res = BucketResources(
-                    frontend: frontendModel,
-                    backend: backendModel,
-                    backendInputNames: Set(
-                        backendModel.modelDescription.inputDescriptionsByName.keys),
+                    model: modelObj,
                     inputIds: try MLMultiArray(
                         shape: [1, maxTokens as NSNumber], dataType: .int32),
                     mask: try MLMultiArray(
@@ -189,7 +159,8 @@ public final class KokoroEngine: @unchecked Sendable {
                         shape: [1, VoiceStore.styleDim as NSNumber], dataType: .float32),
                     randomPhases: try MLMultiArray(
                         shape: [1, Self.numPhases as NSNumber], dataType: .float32),
-                    speed: try MLMultiArray(shape: [1], dataType: .float32)
+                    speed: try MLMultiArray(shape: [1], dataType: .float32),
+                    hasSpeed: modelObj.modelDescription.inputDescriptionsByName[Feature.speed] != nil
                 )
                 resources[bucket] = res
                 Self.logger.info("Loaded \(bucket.modelName) (\(maxTokens) tokens)")
@@ -426,32 +397,19 @@ public final class KokoroEngine: @unchecked Sendable {
 
         res.speed[0] = speed as NSNumber
 
-        let input = try MLDictionaryFeatureProvider(dictionary: [
+        var dict: [String: MLFeatureValue] = [
             Feature.inputIds: MLFeatureValue(multiArray: res.inputIds),
             Feature.attentionMask: MLFeatureValue(multiArray: res.mask),
             Feature.refS: MLFeatureValue(multiArray: res.refS),
             Feature.randomPhases: MLFeatureValue(multiArray: res.randomPhases),
-            Feature.speed: MLFeatureValue(multiArray: res.speed),
-        ])
+        ]
+        if res.hasSpeed {
+            dict[Feature.speed] = MLFeatureValue(multiArray: res.speed)
+        }
+        let input = try MLDictionaryFeatureProvider(dictionary: dict)
 
         let predictionStart = CFAbsoluteTimeGetCurrent()
-
-        // Frontend (CPU, ~5ms): BERT + predictor + SineGen/STFT → intermediates
-        let frontendOutput = try res.frontend.prediction(from: input)
-
-        // Pass intermediates to backend
-        var backendDict: [String: MLFeatureValue] = [:]
-        for name in res.backendInputNames {
-            guard let val = frontendOutput.featureValue(for: name) else {
-                throw KokoroError.inferenceFailed("Missing frontend output: \(name)")
-            }
-            backendDict[name] = val
-        }
-        let backendInput = try MLDictionaryFeatureProvider(dictionary: backendDict)
-
-        // Backend (ANE, ~112ms): decoder + generator + iSTFT → audio
-        let backendOutput = try res.backend.prediction(from: backendInput)
-
+        let output = try res.model.prediction(from: input)
         let predictionElapsed = CFAbsoluteTimeGetCurrent() - predictionStart
 
         if predictionElapsed > Self.slowPredictionThreshold {
@@ -460,14 +418,14 @@ public final class KokoroEngine: @unchecked Sendable {
                 "\(bucket.modelName) prediction took \(ms)ms (possible ANE fallback to CPU/GPU)")
         }
 
-        guard let audio = backendOutput.featureValue(for: Feature.audio)?.multiArrayValue else {
+        guard let audio = output.featureValue(for: Feature.audio)?.multiArrayValue else {
             throw KokoroError.inferenceFailed("Missing audio output")
         }
 
         let durations: [Int]
         let predDur =
-            frontendOutput.featureValue(for: Feature.predDurClamped)?.multiArrayValue
-            ?? frontendOutput.featureValue(for: Feature.predDur)?.multiArrayValue
+            output.featureValue(for: Feature.predDurClamped)?.multiArrayValue
+            ?? output.featureValue(for: Feature.predDur)?.multiArrayValue
         if let predDur {
             durations = (0..<min(predDur.count, tokenIds.count)).map { predDur[$0].intValue }
         } else {
@@ -475,7 +433,7 @@ public final class KokoroEngine: @unchecked Sendable {
         }
 
         let validSamples: Int
-        if let lengthArray = frontendOutput.featureValue(for: Feature.audioLength)?.multiArrayValue,
+        if let lengthArray = output.featureValue(for: Feature.audioLength)?.multiArrayValue,
             lengthArray[0].intValue > 0, lengthArray[0].intValue <= audio.count
         {
             validSamples = lengthArray[0].intValue

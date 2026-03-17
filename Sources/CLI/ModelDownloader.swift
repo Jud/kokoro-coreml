@@ -72,7 +72,13 @@ enum ModelDownloader {
         try fm.createDirectory(at: directory, withIntermediateDirectories: true)
 
         fputs("Checking for latest models...\n", stderr)
-        let tag = try latestModelTag()
+        let tag: String
+        do {
+            tag = try latestModelTag()
+        } catch {
+            fputs("  Could not fetch latest release, falling back to models-v1\n", stderr)
+            tag = "models-v1"
+        }
         let url = assetURL(tag: tag)
         fputs("Downloading KokoroTTS models (\(tag))...\n", stderr)
         fputs("  \(url)\n", stderr)
