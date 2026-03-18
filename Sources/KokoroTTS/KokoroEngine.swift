@@ -97,6 +97,8 @@ public final class KokoroEngine: @unchecked Sendable {
 
     /// Download models to a specific directory.
     ///
+    /// - Important: This method blocks the calling thread. Do not call from
+    ///   the main thread in a UI application.
     /// - Parameters:
     ///   - directory: Where to install models.
     ///   - progress: Called with download progress (0.0–1.0).
