@@ -1,6 +1,6 @@
 import Testing
 
-@testable import KokoroTTS
+@testable import KokoroANE
 
 @Suite("Tokenizer")
 struct TokenizerTests {

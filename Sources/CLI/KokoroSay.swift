@@ -1,7 +1,7 @@
 import AVFoundation
 import ArgumentParser
 import Foundation
-import KokoroTTS
+import KokoroANE
 
 @main
 struct Kokoro: AsyncParsableCommand {

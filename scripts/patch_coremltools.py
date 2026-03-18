@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Patch coremltools for Kokoro TTS CoreML export compatibility.
+"""Patch coremltools for Kokoro ANE CoreML export compatibility.
 
 Applies three patches to the installed coremltools ops.py to fix
 incompatibilities between torch 2.10 tracing and coremltools 9.0:

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# Release script for KokoroTTS CoreML models.
+# Release script for KokoroANE CoreML models.
 #
 # Exports PyTorch → CoreML, compiles, packages with voice data,
 # and uploads as a GitHub release with a date-based tag.
@@ -10,13 +10,13 @@ set -euo pipefail
 #   ./scripts/release.sh              # tag: models-YYYY-MM-DD
 #   ./scripts/release.sh --dry-run    # export + package without uploading
 
-REPO="Jud/kokoro-tts-swift"
+REPO="Jud/kokoro-ane"
 TAG="models-$(date +%Y-%m-%d)"
 DRY_RUN="${1:-}"
 EXPORT_DIR="models_export"
 TARBALL="kokoro-models.tar.gz"
 
-echo "=== KokoroTTS Release: $TAG ==="
+echo "=== KokoroANE Release: $TAG ==="
 
 # 1. Export CoreML models
 echo ""
@@ -44,7 +44,7 @@ if [ ! -d "$VOICE_DIR" ]; then
     echo ""
     echo "Step 3: Voice data not found in $EXPORT_DIR/voices"
     echo "  Copy voice embeddings from your model directory:"
-    echo "    cp -r ~/Library/Application\\ Support/kokoro-tts/models/kokoro/voices $EXPORT_DIR/"
+    echo "    cp -r ~/Library/Application\\ Support/kokoro-ane/models/kokoro/voices $EXPORT_DIR/"
     exit 1
 else
     echo ""

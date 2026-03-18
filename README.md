@@ -1,4 +1,4 @@
-# kokoro-tts-swift
+# kokoro-ane
 
 text-to-speech in Swift. give it text, get 24kHz audio back.
 
@@ -9,7 +9,7 @@ Kokoro-82M on the Apple Neural Engine via CoreML. 6-16x real-time on M-series de
 ```swift
 // Package.swift
 dependencies: [
-    .package(url: "https://github.com/Jud/kokoro-tts-swift.git", from: "0.3.0"),
+    .package(url: "https://github.com/Jud/kokoro-ane.git", from: "0.3.0"),
 ]
 ```
 
@@ -24,7 +24,7 @@ models (~640MB) download automatically on first use. or grab them manually:
 basic synthesis -- give it text, get samples back:
 
 ```swift
-import KokoroTTS
+import KokoroANE
 
 let engine = try KokoroEngine(modelDirectory: modelPath)
 let result = try engine.synthesize(text: "hello world", voice: "af_heart")

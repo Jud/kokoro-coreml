@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import KokoroTTS
+@testable import KokoroANE
 
 /// Compares our G2P output against Kokoro's Python Misaki reference.
 ///

@@ -1,6 +1,6 @@
 import Foundation
 
-/// Errors thrown by the KokoroTTS framework.
+/// Errors thrown by the KokoroANE framework.
 public enum KokoroError: Error, LocalizedError, Sendable {
     /// CoreML model file exists but failed to load.
     case modelLoadFailed(String)

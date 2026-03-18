@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import KokoroTTS
+@testable import KokoroANE
 
 @Suite("Performance")
 struct PerformanceTests {

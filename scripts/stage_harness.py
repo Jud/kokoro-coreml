@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage-by-stage CoreML comparison harness for Kokoro TTS.
+"""Stage-by-stage CoreML comparison harness for Kokoro ANE.
 
 Isolates each model stage into a standalone module, converts to CoreML,
 and compares PyTorch vs CoreML outputs. Stages don't cascade — each

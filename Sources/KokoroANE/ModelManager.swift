@@ -1,6 +1,6 @@
 import Foundation
 
-/// Validates CoreML model presence for KokoroTTS.
+/// Validates CoreML model presence for KokoroANE.
 ///
 /// Models are stored at a fixed path so CoreML preserves its
 /// device-specialized compilation cache across launches.
@@ -10,9 +10,9 @@ enum ModelManager {
     /// Returns `~/Library/Application Support/<bundleIdentifier>/models/kokoro/`.
     ///
     /// - Parameter bundleIdentifier: The app's bundle ID. Defaults to
-    ///   `Bundle.main.bundleIdentifier`, falling back to `"kokoro-tts"`.
+    ///   `Bundle.main.bundleIdentifier`, falling back to `"kokoro-ane"`.
     static func defaultDirectory(
-        for bundleIdentifier: String = Bundle.main.bundleIdentifier ?? "kokoro-tts"
+        for bundleIdentifier: String = Bundle.main.bundleIdentifier ?? "kokoro-ane"
     ) -> URL {
         let appSupport = FileManager.default.urls(
             for: .applicationSupportDirectory, in: .userDomainMask

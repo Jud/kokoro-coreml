@@ -1,12 +1,12 @@
 import ArgumentParser
 import Foundation
-import KokoroTTS
+import KokoroANE
 
 nonisolated(unsafe) private var daemonShouldQuit = false
 
 struct Daemon: ParsableCommand {
     static let configuration = CommandConfiguration(
-        abstract: "Manage the Kokoro TTS daemon for fast inference",
+        abstract: "Manage the Kokoro ANE daemon for fast inference",
         subcommands: [Start.self, Stop.self, Restart.self, Status.self]
     )
 

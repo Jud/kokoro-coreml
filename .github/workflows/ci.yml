@@ -59,19 +59,19 @@ jobs:
         id: model-cache
         uses: actions/cache@v4
         with:
-          path: ~/Library/Application Support/kokoro-tts/models/kokoro
+          path: ~/Library/Application Support/kokoro-ane/models/kokoro
           key: kokoro-models-v1
 
       - name: Download models
         if: steps.model-cache.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
-          MODEL_DIR="$HOME/Library/Application Support/kokoro-tts/models/kokoro"
+          MODEL_DIR="$HOME/Library/Application Support/kokoro-ane/models/kokoro"
           mkdir -p "$MODEL_DIR"
-          TAG=$(curl --fail -s https://api.github.com/repos/Jud/kokoro-tts-swift/releases \
+          TAG=$(curl --fail -s https://api.github.com/repos/Jud/kokoro-ane/releases \
             | python3 -c "import sys,json; releases=json.load(sys.stdin); print(next(r['tag_name'] for r in releases if r['tag_name'].startswith('models-')))")
           echo "Downloading models ($TAG)..."
-          curl --fail -L "https://github.com/Jud/kokoro-tts-swift/releases/download/$TAG/kokoro-models.tar.gz" \
+          curl --fail -L "https://github.com/Jud/kokoro-ane/releases/download/$TAG/kokoro-models.tar.gz" \
             | tar xz -C "$MODEL_DIR"
 
       - name: Run benchmarks

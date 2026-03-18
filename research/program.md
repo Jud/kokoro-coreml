@@ -1,4 +1,4 @@
-# kokoro-tts-swift CoreML Research
+# kokoro-ane CoreML Research
 
 This is an experiment to have the LLM optimize CoreML model export.
 

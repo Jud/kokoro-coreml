@@ -1,10 +1,10 @@
 import ArgumentParser
 import Foundation
-import KokoroTTS
+import KokoroANE
 
 enum CLIModelDownloader {
     static func downloadWithProgress(to directory: URL) throws {
-        fputs("Downloading KokoroTTS models...\n", stderr)
+        fputs("Downloading KokoroANE models...\n", stderr)
         let barWidth = 30
         nonisolated(unsafe) var lastPct = -1
 

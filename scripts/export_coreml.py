@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export Kokoro-82M from PyTorch to split CoreML models for kokoro-tts-swift.
+"""Export Kokoro-82M from PyTorch to split CoreML models for kokoro-ane.
 
 Creates frontend + backend CoreML model pairs per bucket:
   - {bucket}_frontend.mlmodelc  (predictor, CPU_ONLY, ~5ms)

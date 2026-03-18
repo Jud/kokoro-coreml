@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>kokoro — give your agent a voice</title>
+  <meta name="description" content="on-device text-to-speech for Swift. 54 voices, Apple Neural Engine, no cloud, no MLX. your agents deserve to speak.">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <a href="#main" class="skip-link">Skip to content</a>
+  <main id="main">
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="container">
+      <div class="hero-glyph" aria-hidden="true">
+        <svg viewBox="0 0 120 120" width="120" height="120">
+          <circle cx="60" cy="60" r="56" fill="none" stroke="url(#glow)" stroke-width="1.5"/>
+          <circle cx="60" cy="60" r="38" fill="none" stroke="url(#glow)" stroke-width="1" opacity="0.5"/>
+          <circle cx="60" cy="60" r="20" fill="none" stroke="url(#glow)" stroke-width="0.75" opacity="0.3"/>
+          <!-- waveform bars -->
+          <g transform="translate(30, 48)" fill="url(#glow)">
+            <rect x="0"  y="12" width="3" height="8"  rx="1.5" class="bar bar-1"/>
+            <rect x="8"  y="6"  width="3" height="20" rx="1.5" class="bar bar-2"/>
+            <rect x="16" y="2"  width="3" height="28" rx="1.5" class="bar bar-3"/>
+            <rect x="24" y="8"  width="3" height="16" rx="1.5" class="bar bar-4"/>
+            <rect x="32" y="0"  width="3" height="32" rx="1.5" class="bar bar-5"/>
+            <rect x="40" y="6"  width="3" height="20" rx="1.5" class="bar bar-6"/>
+            <rect x="48" y="10" width="3" height="12" rx="1.5" class="bar bar-7"/>
+            <rect x="56" y="4"  width="3" height="24" rx="1.5" class="bar bar-8"/>
+          </g>
+          <defs>
+            <linearGradient id="glow" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#c4b5fd"/>
+              <stop offset="50%" stop-color="#818cf8"/>
+              <stop offset="100%" stop-color="#67e8f9"/>
+            </linearGradient>
+          </defs>
+        </svg>
+      </div>
+      <h1>kokoro</h1>
+      <p class="tagline">give your agent a voice.</p>
+      <p class="sub-tagline">on-device text-to-speech for Swift. 54 voices. Apple Neural Engine. no cloud. no MLX.</p>
+      <div class="hero-actions">
+        <a href="#install" class="btn btn-primary">get started</a>
+        <a href="https://github.com/jud/kokoro-ane" class="btn btn-secondary">source</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- The pitch -->
+  <section class="pitch">
+    <div class="container">
+      <h2 class="sr-only">Why</h2>
+      <div class="pitch-grid">
+        <div class="pitch-item">
+          <h3><span class="accent">Fast</span>, not waiting</h3>
+          <p>6-16x faster than real-time on Apple Silicon. the Neural Engine does the heavy lifting while your agent keeps thinking.</p>
+        </div>
+        <div class="pitch-item">
+          <h3><span class="accent">Local</span>, not calling home</h3>
+          <p>no API keys. no latency. no usage fees. runs entirely on-device. your users' words stay on their hardware.</p>
+        </div>
+        <div class="pitch-item">
+          <h3><span class="accent">Native</span>, not ported</h3>
+          <p>pure Swift, CoreML under the hood. not a Python wrapper. not MLX. just a package you add and call.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Neural Engine callout -->
+  <section class="ane">
+    <div class="container">
+      <div class="ane-layout">
+        <div class="ane-chip" aria-hidden="true">
+          <svg viewBox="0 0 200 200" width="200" height="200">
+            <!-- chip outline -->
+            <rect x="30" y="30" width="140" height="140" rx="16" fill="none" stroke="url(#chip-glow)" stroke-width="1.5"/>
+            <!-- inner die -->
+            <rect x="50" y="50" width="100" height="100" rx="8" fill="rgba(167, 139, 250, 0.04)" stroke="url(#chip-glow)" stroke-width="0.75"/>
+            <!-- neural grid (4x4 dots) -->
+            <g fill="url(#chip-glow)" class="ane-grid">
+              <circle cx="72"  cy="72"  r="4" class="dot dot-1"/>
+              <circle cx="92"  cy="72"  r="4" class="dot dot-2"/>
+              <circle cx="112" cy="72"  r="4" class="dot dot-3"/>
+              <circle cx="132" cy="72"  r="4" class="dot dot-4"/>
+              <circle cx="72"  cy="92"  r="4" class="dot dot-5"/>
+              <circle cx="92"  cy="92"  r="5" class="dot dot-6"/>
+              <circle cx="112" cy="92"  r="5" class="dot dot-7"/>
+              <circle cx="132" cy="92"  r="4" class="dot dot-8"/>
+              <circle cx="72"  cy="112" r="4" class="dot dot-9"/>
+              <circle cx="92"  cy="112" r="5" class="dot dot-10"/>
+              <circle cx="112" cy="112" r="5" class="dot dot-11"/>
+              <circle cx="132" cy="112" r="4" class="dot dot-12"/>
+              <circle cx="72"  cy="132" r="4" class="dot dot-13"/>
+              <circle cx="92"  cy="132" r="4" class="dot dot-14"/>
+              <circle cx="112" cy="132" r="4" class="dot dot-15"/>
+              <circle cx="132" cy="132" r="4" class="dot dot-16"/>
+            </g>
+            <!-- connection lines between dots -->
+            <g stroke="url(#chip-glow)" stroke-width="0.5" opacity="0.3">
+              <line x1="72" y1="72" x2="92" y2="92"/>
+              <line x1="92" y1="72" x2="112" y2="92"/>
+              <line x1="112" y1="72" x2="132" y2="92"/>
+              <line x1="72" y1="92" x2="92" y2="112"/>
+              <line x1="92" y1="92" x2="112" y2="112"/>
+              <line x1="112" y1="92" x2="132" y2="112"/>
+              <line x1="72" y1="112" x2="92" y2="132"/>
+              <line x1="92" y1="112" x2="112" y2="132"/>
+              <line x1="112" y1="112" x2="132" y2="132"/>
+              <line x1="92" y1="72" x2="72" y2="92"/>
+              <line x1="112" y1="72" x2="92" y2="92"/>
+              <line x1="132" y1="72" x2="112" y2="92"/>
+              <line x1="92" y1="92" x2="72" y2="112"/>
+              <line x1="112" y1="92" x2="92" y2="112"/>
+              <line x1="132" y1="92" x2="112" y2="112"/>
+            </g>
+            <!-- pin lines along edges -->
+            <g stroke="var(--accent)" stroke-width="1" opacity="0.2">
+              <!-- top pins -->
+              <line x1="60" y1="30" x2="60" y2="12"/>
+              <line x1="80" y1="30" x2="80" y2="12"/>
+              <line x1="100" y1="30" x2="100" y2="12"/>
+              <line x1="120" y1="30" x2="120" y2="12"/>
+              <line x1="140" y1="30" x2="140" y2="12"/>
+              <!-- bottom pins -->
+              <line x1="60" y1="170" x2="60" y2="188"/>
+              <line x1="80" y1="170" x2="80" y2="188"/>
+              <line x1="100" y1="170" x2="100" y2="188"/>
+              <line x1="120" y1="170" x2="120" y2="188"/>
+              <line x1="140" y1="170" x2="140" y2="188"/>
+              <!-- left pins -->
+              <line x1="30" y1="60" x2="12" y2="60"/>
+              <line x1="30" y1="80" x2="12" y2="80"/>
+              <line x1="30" y1="100" x2="12" y2="100"/>
+              <line x1="30" y1="120" x2="12" y2="120"/>
+              <line x1="30" y1="140" x2="12" y2="140"/>
+              <!-- right pins -->
+              <line x1="170" y1="60" x2="188" y2="60"/>
+              <line x1="170" y1="80" x2="188" y2="80"/>
+              <line x1="170" y1="100" x2="188" y2="100"/>
+              <line x1="170" y1="120" x2="188" y2="120"/>
+              <line x1="170" y1="140" x2="188" y2="140"/>
+            </g>
+            <defs>
+              <linearGradient id="chip-glow" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#c4b5fd"/>
+                <stop offset="50%" stop-color="#818cf8"/>
+                <stop offset="100%" stop-color="#67e8f9"/>
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+        <div class="ane-copy">
+          <p class="ane-label">powered by</p>
+          <h2>Apple Neural Engine</h2>
+          <p class="ane-desc">the same silicon that runs Face ID and computational photography now runs your agent's voice. inference hits the dedicated neural hardware -- not the CPU, not the GPU. that's how you get 112ms per chunk while the rest of the system stays free for your app.</p>
+          <p class="ane-desc">no MLX. no Python runtime. no metal shaders. CoreML talks directly to the ANE. you get native performance without managing any of it.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Voices -->
+  <section class="voices">
+    <div class="container">
+      <h2>54 voices that don't sound like robots</h2>
+      <p class="section-desc">american, british, and accents from around the world. male and female. each with its own character.</p>
+      <div class="voice-grid">
+        <button class="voice-chip" data-sample="samples/af_heart.mp3" aria-label="Play af_heart voice sample"><span class="voice-flag">🇺🇸</span> af_heart <span class="voice-gender">♀</span><span class="voice-play">▶</span></button>
+        <button class="voice-chip" data-sample="samples/am_adam.mp3" aria-label="Play am_adam voice sample"><span class="voice-flag">🇺🇸</span> am_adam <span class="voice-gender">♂</span><span class="voice-play">▶</span></button>
+        <button class="voice-chip" data-sample="samples/bf_emma.mp3" aria-label="Play bf_emma voice sample"><span class="voice-flag">🇬🇧</span> bf_emma <span class="voice-gender">♀</span><span class="voice-play">▶</span></button>
+        <button class="voice-chip" data-sample="samples/bm_george.mp3" aria-label="Play bm_george voice sample"><span class="voice-flag">🇬🇧</span> bm_george <span class="voice-gender">♂</span><span class="voice-play">▶</span></button>
+        <button class="voice-chip" data-sample="samples/ff_siwis.mp3" aria-label="Play ff_siwis voice sample"><span class="voice-flag">🇫🇷</span> ff_siwis <span class="voice-gender">♀</span><span class="voice-play">▶</span></button>
+        <button class="voice-chip" data-sample="samples/jf_gongitsune.mp3" aria-label="Play jf_gongitsune voice sample"><span class="voice-flag">🇯🇵</span> jf_gongitsune <span class="voice-gender">♀</span><span class="voice-play">▶</span></button>
+        <button class="voice-chip" data-sample="samples/zf_xiaoxiao.mp3" aria-label="Play zf_xiaoxiao voice sample"><span class="voice-flag">🇨🇳</span> zf_xiaoxiao <span class="voice-gender">♀</span><span class="voice-play">▶</span></button>
+        <button class="voice-chip" data-sample="samples/am_michael.mp3" aria-label="Play am_michael voice sample"><span class="voice-flag">🇺🇸</span> am_michael <span class="voice-gender">♂</span><span class="voice-play">▶</span></button>
+        <button class="voice-chip" data-sample="samples/af_nova.mp3" aria-label="Play af_nova voice sample"><span class="voice-flag">🇺🇸</span> af_nova <span class="voice-gender">♀</span><span class="voice-play">▶</span></button>
+        <button class="voice-chip" data-sample="samples/bf_isabella.mp3" aria-label="Play bf_isabella voice sample"><span class="voice-flag">🇬🇧</span> bf_isabella <span class="voice-gender">♀</span><span class="voice-play">▶</span></button>
+        <button class="voice-chip" data-sample="samples/pf_dora.mp3" aria-label="Play pf_dora voice sample"><span class="voice-flag">🇧🇷</span> pf_dora <span class="voice-gender">♀</span><span class="voice-play">▶</span></button>
+        <button class="voice-chip" data-sample="samples/if_sara.mp3" aria-label="Play if_sara voice sample"><span class="voice-flag">🇮🇹</span> if_sara <span class="voice-gender">♀</span><span class="voice-play">▶</span></button>
+        <div class="voice-chip dim">+42 more</div>
+      </div>
+      <p class="voice-hint">click a voice to hear it</p>
+    </div>
+  </section>
+
+  <!-- Code -->
+  <section class="code-section">
+    <div class="container">
+      <h2>three lines to speech</h2>
+      <div class="code-block">
+        <pre><code><span class="kw">let</span> engine = <span class="kw">try</span> <span class="ty">KokoroEngine</span>()
+<span class="kw">for await</span> event <span class="kw">in try</span> engine.<span class="fn">speak</span>(<span class="str">"hello from the other side"</span>, voice: <span class="str">"af_heart"</span>) {
+    player.<span class="fn">play</span>(event)
+}</code></pre>
+      </div>
+      <p class="code-note">async streaming. audio chunks arrive as they're synthesized. playback starts immediately.</p>
+    </div>
+  </section>
+
+  <!-- Features -->
+  <section class="features">
+    <div class="container">
+      <h2>what's under the hood</h2>
+      <div class="features-grid">
+        <div class="feature-card">
+          <h3>streaming synthesis</h3>
+          <p>text goes in, audio chunks stream out via AsyncStream. playback starts before the full text is processed.</p>
+        </div>
+        <div class="feature-card">
+          <h3>automatic chunking</h3>
+          <p>pass any length text. kokoro splits it at sentence and clause boundaries, merges short fragments, handles everything.</p>
+        </div>
+        <div class="feature-card">
+          <h3>speed control</h3>
+          <p>0.5x to 2.0x. slow it down for clarity, speed it up for notifications. one parameter.</p>
+        </div>
+        <div class="feature-card">
+          <h3>IPA input</h3>
+          <p>need precise pronunciation? skip the G2P pipeline entirely. pass IPA phonemes directly.</p>
+        </div>
+        <div class="feature-card">
+          <h3>daemon mode</h3>
+          <p>keep models loaded in memory. 3x faster for repeat synthesis. Unix socket IPC. start it, forget it.</p>
+        </div>
+        <div class="feature-card">
+          <h3>smart G2P</h3>
+          <p>lexicon lookup, CamelCase splitting, neural BART fallback, number expansion. technical terms just work.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Performance -->
+  <section class="perf">
+    <div class="container">
+      <div class="perf-grid">
+        <div class="perf-stat">
+          <span class="perf-number">6-16x</span>
+          <span class="perf-label">faster than real-time</span>
+        </div>
+        <div class="perf-stat">
+          <span class="perf-number">~112ms</span>
+          <span class="perf-label">neural engine inference</span>
+        </div>
+        <div class="perf-stat">
+          <span class="perf-number">24kHz</span>
+          <span class="perf-label">sample rate</span>
+        </div>
+        <div class="perf-stat">
+          <span class="perf-number">54</span>
+          <span class="perf-label">distinct voices and accents</span>
+        </div>
+        <div class="perf-stat">
+          <span class="perf-number">0.5-2x</span>
+          <span class="perf-label">speed control</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Use cases -->
+  <section class="usecases">
+    <div class="container">
+      <h2>built for agents</h2>
+      <p class="section-desc">your AI assistant shouldn't have to phone a server to say something out loud.</p>
+      <div class="usecase-grid">
+        <div class="usecase-card">
+          <h3>conversational agents</h3>
+          <p>stream responses as speech in real-time. the voice keeps pace with the LLM output.</p>
+        </div>
+        <div class="usecase-card">
+          <h3>accessibility</h3>
+          <p>read any content aloud with natural-sounding voices. no internet required.</p>
+        </div>
+        <div class="usecase-card">
+          <h3>CLI tools</h3>
+          <p><code>kokoro say "deploy complete"</code> — pipe text in, get audio out. works from any script.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CLI -->
+  <section class="cli">
+    <div class="container">
+      <h2>the command line</h2>
+      <p class="section-desc">speech from your terminal. pipe it, script it, alias it.</p>
+      <div class="terminal">
+        <div class="terminal-bar"><span class="terminal-dot"></span><span class="terminal-dot"></span><span class="terminal-dot"></span></div>
+        <div class="terminal-body">
+          <pre><code><span class="prompt">$</span> kokoro say <span class="str">"your deploy is live"</span>
+
+<span class="prompt">$</span> kokoro say -v am_adam -s 1.3 <span class="str">"moving fast"</span>
+
+<span class="prompt">$</span> kokoro say --stream <span class="str">"start talking before I finish thinking"</span>
+
+<span class="prompt">$</span> echo <span class="str">"long document contents"</span> | kokoro say --stream
+
+<span class="prompt">$</span> kokoro say -o briefing.wav <span class="str">"save this for later"</span>
+
+<span class="prompt">$</span> kokoro say --list-voices
+af_alloy    af_aoede    af_bella    af_heart    af_jessica  ...
+
+<span class="prompt">$</span> kokoro daemon start
+<span class="cm"># models stay warm — subsequent calls are 3x faster</span></code></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Install -->
+  <section class="install" id="install">
+    <div class="container">
+      <h2>get started</h2>
+      <p class="section-desc">macOS 15+ or iOS 18+. Apple Silicon.</p>
+
+      <div class="install-methods">
+        <div class="install-method">
+          <span class="install-label">Homebrew</span>
+          <pre class="install-code"><code>brew install jud/kokoro-ane/kokoro</code></pre>
+        </div>
+
+        <div class="install-method">
+          <span class="install-label">Swift Package Manager</span>
+          <pre class="install-code"><code>.package(url: "https://github.com/jud/kokoro-ane.git", from: "0.3.0")</code></pre>
+        </div>
+      </div>
+
+      <p class="install-note">models (~640MB) download automatically on first run.</p>
+    </div>
+  </section>
+
+  <!-- Quick API reference -->
+  <section class="api-ref">
+    <div class="container">
+      <h2>the API, briefly</h2>
+      <div class="api-grid">
+        <div class="api-example">
+          <h3>synthesize</h3>
+          <div class="code-block code-sm">
+            <pre><code><span class="kw">let</span> result = <span class="kw">try</span> engine.<span class="fn">synthesize</span>(
+    text: <span class="str">"the quick brown fox"</span>,
+    voice: <span class="str">"af_heart"</span>,
+    speed: <span class="num">1.2</span>
+)
+<span class="cm">// result.samples → [Float] at 24kHz</span>
+<span class="cm">// result.realTimeFactor → 12.4x</span></code></pre>
+          </div>
+        </div>
+        <div class="api-example">
+          <h3>stream</h3>
+          <div class="code-block code-sm">
+            <pre><code><span class="kw">for await</span> event <span class="kw">in try</span> engine.<span class="fn">speak</span>(
+    <span class="str">"long text..."</span>,
+    voice: <span class="str">"am_adam"</span>
+) {
+    <span class="kw">switch</span> event {
+    <span class="kw">case</span> .<span class="fn">audio</span>(<span class="kw">let</span> buf): player.<span class="fn">schedule</span>(buf)
+    <span class="kw">case</span> .<span class="fn">chunkFailed</span>(<span class="kw">let</span> e): <span class="fn">print</span>(e)
+    }
+}</code></pre>
+          </div>
+        </div>
+        <div class="api-example">
+          <h3>IPA</h3>
+          <div class="code-block code-sm">
+            <pre><code><span class="kw">let</span> result = <span class="kw">try</span> engine.<span class="fn">synthesize</span>(
+    ipa: <span class="str">"hˈɛloʊ wˈɜːld"</span>,
+    voice: <span class="str">"bf_emma"</span>
+)</code></pre>
+          </div>
+        </div>
+        <div class="api-example">
+          <h3>daemon</h3>
+          <div class="code-block code-sm">
+            <pre><code><span class="cm"># keep models warm for fast repeat synthesis</span>
+kokoro daemon start
+
+<span class="cm"># subsequent calls are 3x faster</span>
+kokoro say <span class="str">"instant response"</span></code></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  </main>
+
+  <script>
+    (function() {
+      let current = null;
+      document.querySelectorAll('.voice-chip[data-sample]').forEach(function(chip) {
+        chip.addEventListener('click', function() {
+          var src = this.getAttribute('data-sample');
+          if (current) {
+            current.pause();
+            current = null;
+            document.querySelectorAll('.voice-chip.playing').forEach(function(c) {
+              c.classList.remove('playing');
+            });
+            if (this.classList.contains('playing')) return;
+          }
+          var audio = new Audio(src);
+          current = audio;
+          this.classList.add('playing');
+          var self = this;
+          audio.addEventListener('ended', function() {
+            self.classList.remove('playing');
+            current = null;
+          });
+          audio.play();
+        });
+      });
+    })();
+  </script>
+
+  <footer class="footer">
+    <div class="container">
+      <p>kokoro is open source. Apache 2.0. <a href="https://github.com/jud/kokoro-ane">GitHub</a></p>
+    </div>
+  </footer>
+
+</body>
+</html>

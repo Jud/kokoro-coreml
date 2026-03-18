@@ -1,7 +1,7 @@
 import Foundation
 
 enum ModelDownloader {
-    static let repo = "Jud/kokoro-tts-swift"
+    static let repo = "Jud/kokoro-ane"
     static let asset = "kokoro-models.tar.gz"
 
     static func latestModelTag() throws -> String {

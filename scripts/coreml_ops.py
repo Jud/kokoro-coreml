@@ -1,4 +1,4 @@
-"""Shared coremltools op registrations for Kokoro TTS CoreML export."""
+"""Shared coremltools op registrations for Kokoro ANE CoreML export."""
 
 from coremltools.converters.mil.frontend.torch.torch_op_registry import (
     _TORCH_OPS_REGISTRY,

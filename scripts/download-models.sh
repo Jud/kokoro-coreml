@@ -1,9 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
-REPO="Jud/kokoro-tts-swift"
+REPO="Jud/kokoro-ane"
 ASSET="kokoro-models.tar.gz"
-DEFAULT_DIR="$HOME/Library/Application Support/kokoro-tts/models/kokoro"
+DEFAULT_DIR="$HOME/Library/Application Support/kokoro-ane/models/kokoro"
 DEST="${1:-$DEFAULT_DIR}"
 
 if [ -d "$DEST/voices" ]; then
@@ -20,7 +20,7 @@ fi
 
 URL="https://github.com/$REPO/releases/download/$TAG/$ASSET"
 
-echo "Downloading KokoroTTS models ($TAG)..."
+echo "Downloading KokoroANE models ($TAG)..."
 echo "  from: $URL"
 echo "  to:   $DEST"
 

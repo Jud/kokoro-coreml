@@ -27,4 +27,4 @@ SIZE=$(du -h "$OUTPUT" | cut -f1)
 echo "Created $OUTPUT ($SIZE)"
 echo ""
 echo "Upload with:"
-echo "  gh release create models-v1 $OUTPUT --repo Jud/kokoro-tts-swift --title 'Model weights' --notes 'Kokoro-82M CoreML models and voice embeddings'"
+echo "  gh release create models-v1 $OUTPUT --repo Jud/kokoro-ane --title 'Model weights' --notes 'Kokoro-82M CoreML models and voice embeddings'"

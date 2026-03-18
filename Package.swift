@@ -2,10 +2,10 @@
 import PackageDescription
 
 let package = Package(
-    name: "KokoroTTS",
+    name: "KokoroANE",
     platforms: [.macOS(.v15), .iOS(.v18)],
     products: [
-        .library(name: "KokoroTTS", targets: ["KokoroTTS"]),
+        .library(name: "KokoroANE", targets: ["KokoroANE"]),
         .executable(name: "kokoro", targets: ["CLI"]),
     ],
     dependencies: [
@@ -15,11 +15,11 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "KokoroTTS",
+            name: "KokoroANE",
             dependencies: [
                 .product(name: "BARTG2P", package: "swift-bart-g2p")
             ],
-            path: "Sources/KokoroTTS",
+            path: "Sources/KokoroANE",
             resources: [
                 .process("Resources")
             ]
@@ -27,16 +27,16 @@ let package = Package(
         .executableTarget(
             name: "CLI",
             dependencies: [
-                "KokoroTTS",
+                "KokoroANE",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "CBOR", package: "cbor"),
             ],
             path: "Sources/CLI"
         ),
         .testTarget(
-            name: "KokoroTTSTests",
-            dependencies: ["KokoroTTS"],
-            path: "Tests/KokoroTTSTests",
+            name: "KokoroANETests",
+            dependencies: ["KokoroANE"],
+            path: "Tests/KokoroANETests",
             resources: [.process("kokoro_g2p_reference.json")]
         ),
     ]

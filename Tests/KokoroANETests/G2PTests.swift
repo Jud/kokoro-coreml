@@ -1,6 +1,6 @@
 import Testing
 
-@testable import KokoroTTS
+@testable import KokoroANE
 
 @Suite("G2P")
 struct G2PTests {

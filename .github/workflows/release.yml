@@ -57,10 +57,10 @@ jobs:
           VERSION="${{ env.VERSION }}"
           SHA256="${{ env.SHA256 }}"
           TAG="${GITHUB_REF_NAME}"
-          URL="https://github.com/Jud/kokoro-tts-swift/releases/download/${TAG}/kokoro-${VERSION}-macos-arm64.tar.gz"
+          URL="https://github.com/Jud/kokoro-ane/releases/download/${TAG}/kokoro-${VERSION}-macos-arm64.tar.gz"
 
-          git clone https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/Jud/homebrew-kokoro.git /tmp/homebrew-kokoro
-          cd /tmp/homebrew-kokoro
+          git clone https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/Jud/homebrew-kokoro-ane.git /tmp/homebrew-kokoro-ane
+          cd /tmp/homebrew-kokoro-ane
 
           sed -i '' "s|url \".*\"|url \"${URL}\"|" Formula/kokoro.rb
           sed -i '' "s|sha256 \".*\"|sha256 \"${SHA256}\"|" Formula/kokoro.rb

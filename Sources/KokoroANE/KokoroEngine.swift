@@ -159,7 +159,7 @@ public final class KokoroEngine: @unchecked Sendable {
     }
 
     private static let logger = Logger(
-        subsystem: "com.kokorotts", category: "KokoroEngine")
+        subsystem: "com.kokoroane", category: "KokoroEngine")
 
     /// Threshold in seconds above which model.prediction() is considered slow
     /// (likely ANE fallback to CPU/GPU).

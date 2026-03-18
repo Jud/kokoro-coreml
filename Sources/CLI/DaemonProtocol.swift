@@ -2,7 +2,7 @@ import CBOR
 import Foundation
 
 enum DaemonConfig {
-    private static let basePath = "\(NSTemporaryDirectory())kokoro-tts-\(getuid())"
+    private static let basePath = "\(NSTemporaryDirectory())kokoro-ane-\(getuid())"
     static let socketPath = basePath + ".sock"
     static let pidPath = basePath + ".pid"
 
