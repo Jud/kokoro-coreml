@@ -1,0 +1,13 @@
+#!/bin/bash
+# Pre-commit hook: check swift formatting on staged files.
+# Install: cp scripts/pre-commit .git/hooks/pre-commit
+
+STAGED=$(git diff --cached --name-only --diff-filter=ACM -- '*.swift')
+[ -z "$STAGED" ] && exit 0
+
+swift format lint --strict --ignore-unparsable-files $STAGED
+if [ $? -ne 0 ]; then
+    echo ""
+    echo "formatting check failed. run: swift format format --in-place \$FILE"
+    exit 1
+fi

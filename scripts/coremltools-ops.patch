@@ -1,0 +1,52 @@
+--- /tmp/ops_clean.py	2026-03-18 01:57:12
++++ /tmp/ops_patched.py	2026-03-18 01:57:02
+@@ -4003,10 +4003,10 @@
+                 is_float = _is_float_value(scales_h)
+ 
+             if is_float and not align_corners:
+-                raise NotImplementedError(
+-                    "recompute_scale_factor = False, align_corners = False with float output size "
+-                    f"is not supported for the upsample op {node.name}"
+-                )
++                # Round float output size to int instead of raising
++                if not is_symbolic(h):
++                    output_size = int(round(output_size))
++                    scales_h = output_size / h
+ 
+         elif isinstance(output_size, Var) and output_size.val is not None:
+             # Infer the scale factor from the provided output size
+@@ -5731,12 +5731,16 @@
+     inputs = _get_inputs(context, node)
+ 
+     input_dtypes = [i.dtype for i in inputs]
+-    if all(types.is_bool(input_dtype) for input_dtype in input_dtypes):
+-        logical_and(context, node)
+-    else:
+-        raise NotImplementedError(
+-            f"The `bitwise_and` op only supports boolean input, but get {input_dtypes}."
+-        )
++    if not all(types.is_bool(input_dtype) for input_dtype in input_dtypes):
++        # Torch 2.10 traces comparisons as float; cast to bool for CoreML
++        inputs = [
++            mb.cast(x=inp, dtype="bool", name=inp.name + "_to_bool")
++            if not types.is_bool(inp.dtype) else inp
++            for inp in inputs
++        ]
++    x, y = inputs[0], inputs[1]
++    result = mb.logical_and(x=x, y=y, name=node.name)
++    context.add(result)
+ 
+ 
+ @register_torch_op
+@@ -7236,7 +7240,10 @@
+ @register_torch_op
+ def rsqrt(context, node):
+     inputs = _get_inputs(context, node, expected=1)
+-    context.add(mb.rsqrt(x=inputs[0], name=node.name))
++    x = inputs[0]
++    if not types.is_float(x.dtype):
++        x = mb.cast(x=x, dtype="fp32", name=node.name + "_to_float")
++    context.add(mb.rsqrt(x=x, name=node.name))
+ 
+ 
+ @register_torch_op

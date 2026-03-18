@@ -1,0 +1,74 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build & Release
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "6.2"
+
+      - name: Build release binary
+        run: swift build -c release
+
+      - name: Package binary
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          STAGING="kokoro-${VERSION}-macos-arm64"
+          mkdir -p "$STAGING"
+
+          # Binary
+          cp .build/release/kokoro "$STAGING/"
+
+          # Resource bundles (G2P lexicons, BART model, vocab)
+          for bundle in .build/release/*.bundle; do
+            cp -R "$bundle" "$STAGING/"
+          done
+
+          tar czf "${STAGING}.tar.gz" "$STAGING"
+          SHA=$(shasum -a 256 "${STAGING}.tar.gz" | awk '{print $1}')
+          echo "$SHA  ${STAGING}.tar.gz" > "${STAGING}.tar.gz.sha256"
+          echo "TARBALL=${STAGING}.tar.gz" >> $GITHUB_ENV
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+          echo "SHA256=${SHA}" >> $GITHUB_ENV
+
+      - name: Create GitHub release
+        run: |
+          gh release create "${GITHUB_REF_NAME}" "${{ env.TARBALL }}" "${{ env.TARBALL }}.sha256" \
+            --title "kokoro ${{ env.VERSION }}" \
+            --generate-notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update Homebrew formula
+        run: |
+          set -euo pipefail
+          VERSION="${{ env.VERSION }}"
+          SHA256="${{ env.SHA256 }}"
+          TAG="${GITHUB_REF_NAME}"
+          URL="https://github.com/Jud/kokoro-coreml/releases/download/${TAG}/kokoro-${VERSION}-macos-arm64.tar.gz"
+
+          git clone https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/Jud/homebrew-kokoro-coreml.git /tmp/homebrew-kokoro-coreml
+          cd /tmp/homebrew-kokoro-coreml
+
+          sed -i '' "s|url \".*\"|url \"${URL}\"|" Formula/kokoro.rb
+          sed -i '' "s|sha256 \".*\"|sha256 \"${SHA256}\"|" Formula/kokoro.rb
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/kokoro.rb
+          git commit -m "Update kokoro to ${VERSION}"
+          git push
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}

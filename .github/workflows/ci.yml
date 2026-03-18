@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  format:
+    name: Format
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "6.2"
+      - name: Check formatting
+        run: swift format lint --strict --ignore-unparsable-files --recursive Sources Tests
+
+  test:
+    name: Test
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "6.2"
+      - uses: actions/cache@v4
+        with:
+          path: .build
+          key: spm-v3-${{ runner.os }}-${{ hashFiles('Package.resolved') }}
+          restore-keys: spm-v3-${{ runner.os }}-
+      - name: Build
+        run: swift build
+      - name: Test
+        run: swift test --skip InferenceBenchmark
