@@ -1,5 +1,4 @@
 @preconcurrency import AVFoundation
-
 import CoreML
 import Foundation
 import os
@@ -86,6 +85,8 @@ public final class KokoroEngine: @unchecked Sendable {
     /// and installs to ``defaultModelDirectory``. Safe to call if models
     /// already exist — checks for updates and skips if current.
     ///
+    /// - Important: This method blocks the calling thread. Do not call from
+    ///   the main thread in a UI application.
     /// - Parameter progress: Called with download progress (0.0–1.0).
     /// - Throws: On network or extraction failure.
     public static func download(

@@ -139,6 +139,10 @@ struct Daemon: ParsableCommand {
                 }
                 guard clientFd >= 0 else { continue }
 
+                // Prevent hung clients from leaking handler threads
+                var timeout = timeval(tv_sec: 30, tv_usec: 0)
+                setsockopt(clientFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+
                 let thread = Thread {
                     handleClient(fd: clientFd, engine: engine)
                 }

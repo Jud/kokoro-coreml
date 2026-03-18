@@ -58,6 +58,9 @@ struct Say: AsyncParsableCommand {
         if stream && ipa {
             throw ValidationError("--stream and --ipa cannot be used together yet")
         }
+        if stream && output != nil {
+            throw ValidationError("--stream and --output cannot be used together")
+        }
     }
 
     mutating func run() async throws {

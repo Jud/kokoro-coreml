@@ -9,7 +9,7 @@ Kokoro-82M on the Apple Neural Engine via CoreML. 6-16x real-time on M-series de
 ```swift
 // Package.swift
 dependencies: [
-    .package(url: "https://github.com/Jud/kokoro-tts-swift.git", from: "0.1.0"),
+    .package(url: "https://github.com/Jud/kokoro-tts-swift.git", from: "0.3.0"),
 ]
 ```
 
@@ -35,7 +35,7 @@ let result = try engine.synthesize(text: "hello world", voice: "af_heart")
 
 ### streaming
 
-for long text, `speak()` streams audio as it's synthesized. each buffer is playback-ready -- consumers just schedule and go:
+for long text, `speak()` streams audio as it's synthesized. each chunk yields a `SpeakEvent` -- either playback-ready audio or an error if a chunk failed:
 
 ```swift
 let audioEngine = AVAudioEngine()
@@ -45,12 +45,25 @@ audioEngine.connect(player, to: audioEngine.mainMixerNode, format: KokoroEngine.
 try audioEngine.start()
 player.play()
 
-for await buffer in try engine.speak("any length text...", voice: "af_heart") {
-    player.scheduleBuffer(buffer)
+for await event in try engine.speak("any length text...", voice: "af_heart") {
+    switch event {
+    case .audio(let buffer): player.scheduleBuffer(buffer)
+    case .chunkFailed(let error): print("chunk failed: \(error)")
+    }
 }
 ```
 
-no manual chunking. no PCM conversion. text goes in, playback-ready `AVAudioPCMBuffer` comes out.
+no manual chunking. no PCM conversion. text goes in, playback-ready audio comes out.
+
+### direct IPA input
+
+skip the G2P pipeline and pass IPA phonemes directly:
+
+```swift
+let result = try engine.synthesize(ipa: "hˈɛloʊ wˈɜːld", voice: "af_heart")
+```
+
+useful for fine-grained pronunciation control or pre-processed text.
 
 ### speed control
 
@@ -70,6 +83,7 @@ kokoro say "hello from the terminal"
 kokoro say -v am_adam -s 1.2 "speed it up"
 kokoro say -o output.wav "save to file"
 kokoro say --stream "start hearing audio before synthesis finishes"
+kokoro say --ipa "hˈɛloʊ wˈɜːld"
 echo "long article" | kokoro say --stream
 kokoro say --list-voices
 kokoro daemon start   # keep models loaded for fast repeat synthesis
@@ -77,6 +91,8 @@ kokoro daemon stop
 ```
 
 `--stream` starts playback as soon as the first chunk is ready. reports time-to-first-audio and per-chunk stats.
+
+`--ipa` accepts IPA phonemes directly, skipping G2P.
 
 models download on first run. `--model-dir <path>` to override.
 
@@ -109,7 +125,7 @@ the engine picks the smallest model bucket that fits:
 | small  | 124       | ~5s         |
 | medium | 242       | ~10s        |
 
-longer text gets chunked at sentence boundaries, merged where possible, and stitched with silence gaps. `synthesize()` returns the full result. `speak()` streams chunks as `AVAudioPCMBuffer` via `AsyncStream`.
+longer text gets chunked at sentence boundaries and merged where possible. `synthesize()` returns the full result. `speak()` streams chunks as `SpeakEvent` via `AsyncStream`.
 
 ## architecture
 
