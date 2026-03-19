@@ -169,7 +169,11 @@ final class EnglishG2P {
         var tokens: [String] = []
         var features: [PreprocessFeature] = []
 
-        let input = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        var input = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Expand symbols that NLTagger swallows when attached to numbers
+        for (sym, word) in [("%", " percent"), ("&", " and"), ("+", " plus"), ("@", " at")] {
+            input = input.replacingOccurrences(of: sym, with: word)
+        }
         var lastEnd = input.startIndex
         let ns = input as NSString
         let fullRange = NSRange(location: 0, length: ns.length)
