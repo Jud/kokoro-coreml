@@ -23,122 +23,35 @@ import torch.nn.functional as F
 import coremltools as ct
 from coreml_ops import register_missing_torch_ops
 
-# CoreML-compatible _f02sine for SineGen.
-# Only _f02sine is used — it gets monkey-patched onto the original SineGen class.
-# The original __init__, _f02uv, and forward are kept on the original class.
-
-class SineGen:
-    @staticmethod
-    def _f02sine(self, f0_values):
-        """CoreML-compatible phase computation: fractional freq → pool → cumsum → interpolate → sin."""
-        val = f0_values / self.sampling_rate
-        rad_values = val - torch.floor(val)
-
-        if not self.flag_for_pulse:
-            K = int(self.upsample_scale)
-
-            # Work in [B, D, L] channels-first format to minimize transposes
-            x = rad_values.transpose(1, 2)                       # [B, D, L]
-            x = F.avg_pool1d(x, kernel_size=K, stride=K)         # [B, D, N]
-            x = torch.cumsum(x, dim=2)                           # [B, D, N]
-            x = x * (2.0 * torch.pi * K)
-            x = F.interpolate(x, scale_factor=float(K),
-                              mode='linear', align_corners=True)  # [B, D, N*K]
-            phase = x.transpose(1, 2)                             # [B, N*K, D]
-
-            # Wrap phase to [0, 2π)
-            two_pi = 2.0 * torch.pi
-            phase = phase - two_pi * torch.floor(phase / two_pi)
-
-            sines = torch.sin(phase)
-
-        return sines
-
-# CustomSTFT inlined from kokoro.custom_stft.
-
-class CustomSTFT(nn.Module):
-    def __init__(self, filter_length=800, hop_length=200, win_length=800,
-                 window="hann", center=True, pad_mode="replicate"):
-        super().__init__()
-        self.filter_length = filter_length
-        self.hop_length = hop_length
-        self.win_length = win_length
-        self.n_fft = filter_length
-        self.center = center
-        self.pad_mode = pad_mode
-        self.freq_bins = self.n_fft // 2 + 1
-
-        assert window == 'hann', window
-        window_tensor = torch.hann_window(win_length, periodic=True, dtype=torch.float32)
-        if self.win_length < self.n_fft:
-            window_tensor = F.pad(window_tensor, (0, self.n_fft - self.win_length))
-        elif self.win_length > self.n_fft:
-            window_tensor = window_tensor[:self.n_fft]
-        # window_tensor used only during __init__ to construct DFT matrices
-        n = np.arange(self.n_fft)
-        k = np.arange(self.freq_bins)
-        angle = 2 * np.pi * np.outer(k, n) / self.n_fft
-        dft_real = np.cos(angle)
-        dft_imag = -np.sin(angle)
-
-        forward_window = window_tensor.numpy()
-        forward_real = dft_real * forward_window
-        forward_imag = dft_imag * forward_window
-
-        # Fused forward weight: cat([W_real, W_imag]) — single conv1d for both
-        self.register_buffer("weight_forward_fused",
-                             torch.cat([
-                                 torch.from_numpy(forward_real).float().unsqueeze(1),
-                                 torch.from_numpy(forward_imag).float().unsqueeze(1),
-                             ], dim=0))
-
-        inv_scale = 1.0 / self.n_fft
-        angle_t = 2 * np.pi * np.outer(n, k) / self.n_fft
-        idft_cos = np.cos(angle_t).T
-        idft_sin = np.sin(angle_t).T
-        inv_window = window_tensor.numpy() * inv_scale
-
-        # Fused inverse weight: cat([W_real, -W_imag]) — single conv_transpose1d
-        self.register_buffer("weight_backward_fused",
-                             torch.cat([
-                                 torch.from_numpy(idft_cos * inv_window).float().unsqueeze(1),
-                                 -torch.from_numpy(idft_sin * inv_window).float().unsqueeze(1),
-                             ], dim=0))
-
-    def transform(self, waveform):
-        if self.center:
-            pad_len = self.n_fft // 2
-            waveform = F.pad(waveform, (pad_len, pad_len), mode=self.pad_mode)
-        x = waveform.unsqueeze(1)
-        # Single fused conv1d for both real and imag
-        ri = F.conv1d(x, self.weight_forward_fused, bias=None,
-                      stride=self.hop_length, padding=0)
-        real_out = ri[:, :self.freq_bins, :]
-        imag_out = ri[:, self.freq_bins:, :]
-        magnitude = torch.sqrt(real_out * real_out + imag_out * imag_out + 1e-14)
-        phase = torch.atan2(imag_out, real_out)
-        correction_mask = (imag_out == 0) & (real_out < 0)
-        phase[correction_mask] = torch.pi
-        return magnitude, phase
-
-    def inverse(self, magnitude, phase, length=None):
-        real_part = magnitude * torch.cos(phase)
-        imag_part = magnitude * torch.sin(phase)
-        combined = torch.cat([real_part, imag_part], dim=1)
-        waveform = F.conv_transpose1d(combined, self.weight_backward_fused,
-                                      bias=None, stride=self.hop_length, padding=0)
-        if self.center:
-            pad_len = self.n_fft // 2
-            waveform = waveform[..., pad_len:-pad_len]
-        if length is not None:
-            waveform = waveform[..., :length]
-        return waveform
-
-    def forward(self, x):
-        mag, phase = self.transform(x)
-        return self.inverse(mag, phase, length=x.shape[-1])
+# Reference implementations — DO NOT MODIFY these imports.
+# CustomSTFT, SineGen, patch_sinegen_for_export, and patch_pack_padded_sequence
+# define the PyTorch reference. They live in reference.py (read-only).
+from reference import (  # noqa: F401 — re-exported for harness/other scripts
+    CustomSTFT, SineGen, patch_sinegen_for_export, patch_pack_padded_sequence,
+)
 
 register_missing_torch_ops()
+
+
+# ---------------------------------------------------------------------------
+# CoreML-compatible STFT override
+# ---------------------------------------------------------------------------
+# Replace index_put_ (phase[mask] = pi) with torch.where for CoreML export.
+# This does NOT change the PyTorch reference — it only affects the traced graph.
+def _stft_transform_coreml(self, waveform):
+    if self.center:
+        pad_len = self.n_fft // 2
+        waveform = F.pad(waveform, (pad_len, pad_len), mode=self.pad_mode)
+    x = waveform.unsqueeze(1)
+    ri = F.conv1d(x, self.weight_forward_fused, bias=None,
+                  stride=self.hop_length, padding=0)
+    real_out = ri[:, :self.freq_bins, :]
+    imag_out = ri[:, self.freq_bins:, :]
+    magnitude = torch.sqrt(real_out * real_out + imag_out * imag_out + 1e-14)
+    phase = torch.atan2(imag_out, real_out)
+    correction_mask = (imag_out == 0) & (real_out < 0)
+    phase = torch.where(correction_mask, torch.tensor(torch.pi), phase)
+    return magnitude, phase
 
 
 # ---------------------------------------------------------------------------
@@ -240,6 +153,7 @@ class DecoderBackEnd(nn.Module):
 BUCKETS = {
     "kokoro_21_5s":  {"max_tokens": 124, "max_audio": 175_800},
     "kokoro_24_10s": {"max_tokens": 242, "max_audio": 240_000},
+    "kokoro_25_20s": {"max_tokens": 510, "max_audio": 510_000},
 }
 
 SAMPLES_PER_FRAME = 600  # decoder upsample (2x) * generator (10*6*5=300)
@@ -248,98 +162,11 @@ S_CONTENT_DIM = 128      # first half of 256-dim style vector (content style)
 
 
 # ---------------------------------------------------------------------------
-# Monkey-patches for CoreML compatibility
-# ---------------------------------------------------------------------------
-def patch_pack_padded_sequence():
-    """Replace pack_padded_sequence/pad_packed_sequence with no-ops.
-
-    CoreML cannot convert these ops. PyTorch audio quality is identical
-    without them (verified empirically).
-    """
-    nn.utils.rnn.pack_padded_sequence = lambda x, lengths, **kw: x
-    nn.utils.rnn.pad_packed_sequence = lambda x, **kw: (x, None)
-
-
-def _patch_snake_mul(model):
-    """Replace pow(sin(x), 2) with sin(x) * sin(x) in Snake activations.
-
-    pow is not in ANE's native op list. Explicit mul is ANE-native
-    and avoids the pow decomposition overhead.
-    """
-    from kokoro.istftnet import AdaINResBlock1
-
-    def _snake_mul_forward(self, x, s):
-        for c1, c2, n1, n2, a1, a2 in zip(
-            self.convs1, self.convs2, self.adain1, self.adain2,
-            self.alpha1, self.alpha2
-        ):
-            xt = n1(x, s)
-            s1 = torch.sin(a1 * xt)
-            xt = xt + (1.0 / a1) * (s1 * s1)
-            xt = c1(xt)
-            xt = n2(xt, s)
-            s2 = torch.sin(a2 * xt)
-            xt = xt + (1.0 / a2) * (s2 * s2)
-            xt = c2(xt)
-            x = xt + x
-        return x
-
-    AdaINResBlock1.forward = _snake_mul_forward
-
-
-def patch_sinegen_for_export(model):
-    """Apply inlined SineGen to the model and return a phases helper.
-
-    The inlined SineGen class (above) has CoreML-compatible _f02sine built in.
-    This function applies it to the loaded model's SineGen instances via
-    class-level method replacement, and provides the set_phases helper.
-    """
-    from kokoro.istftnet import SineGen as OriginalSineGen
-
-    # Replace _f02sine on the original class
-    OriginalSineGen._f02sine = SineGen._f02sine
-
-    # Skip dead noise computation entirely.
-    # The original forward computes noise = noise_amp * randn_like(sines) then
-    # sines = sines * uv + noise. With zero noise, this simplifies to sines * uv.
-    # Eliminating the dead code produces a cleaner, smaller traced graph.
-    def _zero_noise_forward(self, f0):
-        fn = torch.multiply(f0, torch.FloatTensor(
-            [[range(1, self.harmonic_num + 2)]]).to(f0.device))
-        sine_waves = self._f02sine(fn) * self.sine_amp
-        uv = self._f02uv(f0)
-        sine_waves = sine_waves * uv
-        return sine_waves, uv, torch.zeros_like(sine_waves)
-    OriginalSineGen.forward = _zero_noise_forward
-
-    # Replace pow(sin,2) with mul in Snake activations
-    _patch_snake_mul(model)
-
-    # Eliminate dead noise in SourceModuleHnNSF — noi_source is never used
-    # in the generator, and randn_like in the trace creates unnecessary ops
-    from kokoro.istftnet import SourceModuleHnNSF
-    def _no_noise_source_forward(self, x):
-        with torch.no_grad():
-            sine_wavs, uv, _ = self.l_sin_gen(x)
-        sine_merge = self.l_tanh(self.l_linear(sine_wavs))
-        return sine_merge, torch.zeros_like(uv), uv
-    SourceModuleHnNSF.forward = _no_noise_source_forward
-
-    # Set external phases on all SineGen instances
-    def set_phases(module, phases):
-        for m in module.modules():
-            if isinstance(m, OriginalSineGen):
-                m._external_phases = torch.zeros_like(phases)
-
-    return set_phases
-
-
-# ---------------------------------------------------------------------------
 # ANE-compatible op replacements
 # ---------------------------------------------------------------------------
 
 def _ane_sin(x):
-    """ANE-compatible sin approximation using 5th-order minimax polynomial.
+    """ANE-compatible sin approximation using 9th-order Taylor polynomial.
 
     Wraps input to [-pi, pi] using round (ANE-native), then applies a
     polynomial that closely approximates sin over that range.
@@ -348,8 +175,8 @@ def _ane_sin(x):
     TWO_PI = 2.0 * math.pi
     x = x - torch.round(x / TWO_PI) * TWO_PI
     x2 = x * x
-    # Coefficients: 5th-order Taylor-like (1/6, 1/120, 1/5040)
-    return x * (1.0 - x2 * (0.16666666 - x2 * (0.00833333 - x2 * 0.000198413)))
+    # 9th-order Taylor: x - x³/3! + x⁵/5! - x⁷/7! + x⁹/9!
+    return x * (1.0 - x2 * (0.16666666666 - x2 * (0.00833333333 - x2 * (0.000198412698 - x2 * 0.00000275573192))))
 
 
 def _ane_cos(x):
@@ -486,21 +313,9 @@ def _patch_sin_cos(model):
 
     AdaINResBlock1.forward = _snake_ane_forward
 
-    # 2+3. Patch CustomSTFT.inverse to use _ane_cos/_ane_sin
-    def _ane_stft_inverse(self, magnitude, phase, length=None):
-        real_part = magnitude * _ane_cos(phase)
-        imag_part = magnitude * _ane_sin(phase)
-        combined = torch.cat([real_part, imag_part], dim=1)
-        waveform = F.conv_transpose1d(combined, self.weight_backward_fused,
-                                      bias=None, stride=self.hop_length, padding=0)
-        if self.center:
-            pad_len = self.n_fft // 2
-            waveform = waveform[..., pad_len:-pad_len]
-        if length is not None:
-            waveform = waveform[..., :length]
-        return waveform
-
-    CustomSTFT.inverse = _ane_stft_inverse
+    # 2+3. STFT inverse keeps exact torch.sin/cos — it's the final output
+    # stage so accuracy matters more than ANE eligibility here. Any CPU
+    # fallback only affects this last step.
 
 
 # ---------------------------------------------------------------------------
@@ -537,8 +352,6 @@ class KokoroModelA(nn.Module):
 
     def __init__(self, model, max_tokens, max_audio, set_phases_fn):
         super().__init__()
-        self.max_tokens = max_tokens
-        self.max_frames = max_audio // SAMPLES_PER_FRAME
         self.set_phases_fn = set_phases_fn
 
         self.bert = model.bert
@@ -550,18 +363,18 @@ class KokoroModelA(nn.Module):
     def forward(self, input_ids, attention_mask, ref_s, speed, random_phases):
         """
         Args:
-            input_ids:       [1, max_tokens] int32
-            attention_mask:  [1, max_tokens] int32
+            input_ids:       [1, N] int32 (dynamic N)
+            attention_mask:  [1, N] int32
             ref_s:           [1, 256] float32
             speed:           [1] float32
             random_phases:   [1, 9] float32
         Returns:
-            asr:                  [1, 512, max_frames] float32
-            F0_pred:              [1, F0_frames] float32
-            N_pred:               [1, F0_frames] float32
-            har:                  [1, har_channels, har_frames] float32
+            asr:                  [1, 512, F] float32 (dynamic F = total frames)
+            F0_pred:              [1, 2F] float32
+            N_pred:               [1, 2F] float32
+            har:                  [1, 22, H] float32
             audio_length_samples: [1] int32
-            pred_dur_clamped:     [1, max_tokens] float32
+            pred_dur_clamped:     [1, N] float32
         """
         self.set_phases_fn(self.gen_frontend, random_phases)
 
@@ -580,9 +393,11 @@ class KokoroModelA(nn.Module):
         pred_dur = torch.round(duration).clamp(min=1).long()
         pred_dur = pred_dur * attention_mask.long()
 
+        # Dynamic alignment: frame count derived from predicted durations
         cumsum = torch.cumsum(pred_dur, dim=-1)
+        total_frames = cumsum[0, -1]
         frame_indices = torch.arange(
-            self.max_frames, device=input_ids.device
+            total_frames, device=input_ids.device
         ).unsqueeze(0)
         starts = F.pad(cumsum[:, :-1], (1, 0))
         pred_aln_trg = (
@@ -599,7 +414,7 @@ class KokoroModelA(nn.Module):
         # GeneratorFrontEnd: SineGen + STFT.transform (atan2 stays on CPU)
         har = self.gen_frontend(F0_pred)
 
-        audio_length = (cumsum[:, -1].float() * float(SAMPLES_PER_FRAME)).int()
+        audio_length = (total_frames.float() * float(SAMPLES_PER_FRAME)).int()
 
         return asr, F0_pred, N_pred, har, audio_length, pred_dur.float()
 
@@ -632,6 +447,28 @@ class KokoroModelB(nn.Module):
 # ---------------------------------------------------------------------------
 # Export
 # ---------------------------------------------------------------------------
+def _compile_model(pkg_path, output_dir, name):
+    """Compile an .mlpackage to .mlmodelc."""
+    print(f"  Compiling {name}...")
+    result = subprocess.run(
+        ["xcrun", "coremlcompiler", "compile", pkg_path, output_dir],
+        capture_output=True, text=True)
+    compiled = os.path.join(output_dir,
+                            os.path.basename(pkg_path).replace(".mlpackage", ".mlmodelc"))
+    if result.returncode == 0 and os.path.exists(compiled):
+        print(f"  Compiled: {compiled}")
+    else:
+        print(f"  Compilation failed: {result.stderr[:200]}")
+
+
+def _tokenize(text, pipeline):
+    """Convert text to token IDs with BOS/EOS."""
+    phonemes, _ = pipeline.g2p(text)
+    raw = list(filter(lambda i: i is not None,
+        map(lambda p: pipeline.model.vocab.get(p), phonemes)))
+    return [0] + raw + [0]
+
+
 def export_bucket(pipeline, model, set_phases_fn, bucket_name, bucket_config,
                   output_dir, verify=False):
     max_tokens = bucket_config["max_tokens"]
@@ -639,6 +476,9 @@ def export_bucket(pipeline, model, set_phases_fn, bucket_name, bucket_config,
     max_frames = max_audio // SAMPLES_PER_FRAME
 
     print(f"\nExporting {bucket_name} (max_tokens={max_tokens}, max_audio={max_audio})")
+
+    # Override STFT transform for CoreML compatibility (torch.where instead of index_put_)
+    CustomSTFT.transform = _stft_transform_coreml
 
     # --- Frontend (Model A): predictor + GeneratorFrontEnd on CPU_ONLY ---
     frontend = KokoroModelA(model, max_tokens, max_audio, set_phases_fn)
@@ -688,19 +528,7 @@ def export_bucket(pipeline, model, set_phases_fn, bucket_name, bucket_config,
     fe_model.save(fe_pkg)
     print(f"  Saved {fe_pkg}")
 
-    def _compile(pkg_path, name):
-        print(f"  Compiling {name}...")
-        result = subprocess.run(
-            ["xcrun", "coremlcompiler", "compile", pkg_path, output_dir],
-            capture_output=True, text=True)
-        compiled = os.path.join(output_dir,
-                                os.path.basename(pkg_path).replace(".mlpackage", ".mlmodelc"))
-        if result.returncode == 0 and os.path.exists(compiled):
-            print(f"  Compiled: {compiled}")
-        else:
-            print(f"  Compilation failed: {result.stderr[:200]}")
-
-    _compile(fe_pkg, "frontend")
+    _compile_model(fe_pkg, output_dir, "frontend")
 
     # --- Backend (Model B): DecoderBackEnd on ALL (ANE-eligible, no atan2) ---
     # Run frontend to get intermediate tensor shapes for tracing
@@ -723,33 +551,42 @@ def export_bucket(pipeline, model, set_phases_fn, bucket_name, bucket_config,
     print(f"  Backend input shapes: asr={tuple(asr.shape)}, "
           f"F0_pred={tuple(F0_pred.shape)}, har={tuple(har.shape)}")
 
-    print("  Converting backend to CoreML...")
-    be_model = ct.convert(
-        be_traced,
-        inputs=[
-            ct.TensorType(name="asr", shape=tuple(asr.shape),
-                          dtype=np.float32),
-            ct.TensorType(name="F0_pred", shape=tuple(F0_pred.shape),
-                          dtype=np.float32),
-            ct.TensorType(name="N_pred", shape=tuple(N_pred.shape),
-                          dtype=np.float32),
-            ct.TensorType(name="s_content", shape=(1, S_CONTENT_DIM), dtype=np.float32),
-            ct.TensorType(name="har", shape=tuple(har.shape),
-                          dtype=np.float32),
-        ],
-        outputs=[
-            ct.TensorType(name="audio", dtype=np.float32),
-        ],
-        minimum_deployment_target=ct.target.macOS15,
-        compute_precision=ct.precision.FLOAT32,
-        convert_to="mlprogram",
-    )
+    # Convert backend on a separate thread to avoid CoreML thread-local
+    # state corruption between frontend and backend conversions.
+    import threading
+    _be_result = {}
+    def _convert_backend():
+        print("  Converting backend to CoreML...")
+        _be_result["model"] = ct.convert(
+            be_traced,
+            inputs=[
+                ct.TensorType(name="asr", shape=tuple(asr.shape),
+                              dtype=np.float32),
+                ct.TensorType(name="F0_pred", shape=tuple(F0_pred.shape),
+                              dtype=np.float32),
+                ct.TensorType(name="N_pred", shape=tuple(N_pred.shape),
+                              dtype=np.float32),
+                ct.TensorType(name="s_content", shape=(1, S_CONTENT_DIM), dtype=np.float32),
+                ct.TensorType(name="har", shape=tuple(har.shape),
+                              dtype=np.float32),
+            ],
+            outputs=[
+                ct.TensorType(name="audio", dtype=np.float32),
+            ],
+            minimum_deployment_target=ct.target.macOS15,
+            compute_precision=ct.precision.FLOAT32,
+            convert_to="mlprogram",
+        )
+    _t = threading.Thread(target=_convert_backend)
+    _t.start()
+    _t.join()
+    be_model = _be_result["model"]
 
     be_pkg = os.path.join(output_dir, f"{bucket_name}_backend.mlpackage")
     be_model.save(be_pkg)
     print(f"  Saved {be_pkg}")
 
-    _compile(be_pkg, "backend")
+    _compile_model(be_pkg, output_dir, "backend")
 
     if verify:
         verify_export(pipeline, model, set_phases_fn, fe_model, be_model,
@@ -864,17 +701,142 @@ def verify_export(pipeline, pytorch_model, set_phases_fn, fe_coreml,
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+def export_dynamic(pipeline, model, set_phases_fn, output_dir,
+                   trace_tokens=100, max_tokens=512, verify=False):
+    """Export a single dynamic frontend + backend model pair.
+
+    No fixed buckets, no padding required. Frontend accepts 3-max_tokens tokens.
+    Backend accepts variable frame counts. No ANE patches applied.
+
+    The alignment matrix is sized for max_tokens (not trace_tokens) so that
+    any token count up to max_tokens produces full-length audio.
+    """
+    # Alignment is now dynamic (derived from predicted durations), so trace_audio
+    # only affects the trace-time tensor sizes, not the runtime output.
+    trace_audio = ((trace_tokens * 1600 + 599) // 600) * 600
+
+    print(f"\nExporting dynamic model (trace={trace_tokens} tokens, range=3-{max_tokens})")
+
+    CustomSTFT.transform = _stft_transform_coreml
+
+    # --- Frontend ---
+    frontend = KokoroModelA(model, trace_tokens, trace_audio, set_phases_fn)
+    frontend.eval()
+
+    fe_ids = torch.zeros(1, trace_tokens, dtype=torch.int64)
+    fe_ids[0, :3] = torch.tensor([0, 50, 1])
+    fe_mask = torch.zeros(1, trace_tokens, dtype=torch.int64)
+    fe_mask[0, :3] = 1
+    fe_ref_s = torch.randn(1, 256)
+    fe_speed = torch.tensor([1.0])
+    fe_phases = torch.zeros(1, NUM_HARMONICS)
+
+    print("  Tracing frontend...")
+    with torch.no_grad():
+        fe_traced = torch.jit.trace(
+            frontend, (fe_ids, fe_mask, fe_ref_s, fe_speed, fe_phases),
+            check_trace=False,
+        )
+
+    print("  Converting frontend to CoreML (dynamic shapes)...")
+    seq_dim = ct.RangeDim(lower_bound=3, upper_bound=max_tokens, default=trace_tokens)
+    fe_model = ct.convert(
+        fe_traced,
+        inputs=[
+            ct.TensorType(name="input_ids", shape=(1, seq_dim), dtype=np.int32),
+            ct.TensorType(name="attention_mask", shape=(1, seq_dim), dtype=np.int32),
+            ct.TensorType(name="ref_s", shape=(1, 256), dtype=np.float32),
+            ct.TensorType(name="speed", shape=(1,), dtype=np.float32),
+            ct.TensorType(name="random_phases", shape=(1, NUM_HARMONICS),
+                          dtype=np.float32),
+        ],
+        outputs=[
+            ct.TensorType(name="asr", dtype=np.float32),
+            ct.TensorType(name="F0_pred", dtype=np.float32),
+            ct.TensorType(name="N_pred", dtype=np.float32),
+            ct.TensorType(name="har", dtype=np.float32),
+            ct.TensorType(name="audio_length_samples", dtype=np.int32),
+            ct.TensorType(name="pred_dur_clamped", dtype=np.float32),
+        ],
+        minimum_deployment_target=ct.target.macOS15,
+        compute_precision=ct.precision.FLOAT32,
+        convert_to="mlprogram",
+    )
+
+    fe_pkg = os.path.join(output_dir, "kokoro_frontend.mlpackage")
+    fe_model.save(fe_pkg)
+    print(f"  Saved {fe_pkg}")
+
+    _compile_model(fe_pkg, output_dir, "frontend")
+
+    # --- Backend (dynamic shapes) ---
+    with torch.no_grad():
+        asr, F0_pred, N_pred, har, _, _ = frontend(
+            fe_ids, fe_mask, fe_ref_s, fe_speed, fe_phases)
+
+    backend = KokoroModelB(model)
+    backend.eval()
+
+    be_s_content = torch.randn(1, S_CONTENT_DIM)
+
+    print("  Tracing backend...")
+    with torch.no_grad():
+        be_traced = torch.jit.trace(
+            backend, (asr, F0_pred, N_pred, be_s_content, har),
+            check_trace=False,
+        )
+
+    frames_dim = ct.RangeDim(lower_bound=1, upper_bound=2000, default=asr.shape[2])
+    f0_dim = ct.RangeDim(lower_bound=1, upper_bound=4000, default=F0_pred.shape[1])
+    har_dim = ct.RangeDim(lower_bound=1, upper_bound=500000, default=har.shape[2])
+
+    import threading
+    _be_result = {}
+    def _convert_backend():
+        print("  Converting backend to CoreML (dynamic shapes)...")
+        _be_result["model"] = ct.convert(
+            be_traced,
+            inputs=[
+                ct.TensorType(name="asr", shape=(1, 512, frames_dim), dtype=np.float32),
+                ct.TensorType(name="F0_pred", shape=(1, f0_dim), dtype=np.float32),
+                ct.TensorType(name="N_pred", shape=(1, f0_dim), dtype=np.float32),
+                ct.TensorType(name="s_content", shape=(1, S_CONTENT_DIM), dtype=np.float32),
+                ct.TensorType(name="har", shape=(1, 22, har_dim), dtype=np.float32),
+            ],
+            outputs=[
+                ct.TensorType(name="audio", dtype=np.float32),
+            ],
+            minimum_deployment_target=ct.target.macOS15,
+            compute_precision=ct.precision.FLOAT32,
+            convert_to="mlprogram",
+        )
+    _t = threading.Thread(target=_convert_backend)
+    _t.start()
+    _t.join()
+    be_model = _be_result["model"]
+
+    be_pkg = os.path.join(output_dir, "kokoro_backend.mlpackage")
+    be_model.save(be_pkg)
+    print(f"  Saved {be_pkg}")
+
+    _compile_model(be_pkg, output_dir, "backend")
+
+    return fe_model, be_model
+
+
 def main():
     parser = argparse.ArgumentParser(description="Export Kokoro-82M to CoreML")
     parser.add_argument("--output-dir", default="./models_export")
     parser.add_argument("--verify", action="store_true")
-    parser.add_argument("--bucket", choices=list(BUCKETS.keys()))
+    parser.add_argument("--bucket", choices=list(BUCKETS.keys()),
+                        help="Export fixed-size bucket (legacy)")
+    parser.add_argument("--dynamic", action="store_true", default=True,
+                        help="Export dynamic model (default)")
+    parser.add_argument("--legacy", action="store_true",
+                        help="Export legacy fixed-size buckets with ANE patches")
     args = parser.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
-
-    print("Applying CoreML compatibility patches...")
-    patch_pack_padded_sequence()
 
     print("Loading Kokoro model...")
     pipeline, model = load_kokoro_model()
@@ -882,13 +844,22 @@ def main():
     print("Patching SineGen for CoreML...")
     set_phases_fn = patch_sinegen_for_export(model)
 
-    print("Patching backend ops for ANE (instanceNorm, leakyRelu, sin, cos)...")
-    patch_ane_ops(model)
+    # pack_padded_sequence no-op — needed for tracing (CoreML can't convert it),
+    # but doesn't affect output when there's no padding (batch=1, no masked tokens)
+    patch_pack_padded_sequence()
 
-    buckets = {args.bucket: BUCKETS[args.bucket]} if args.bucket else BUCKETS
-    for name, config in buckets.items():
-        export_bucket(pipeline, model, set_phases_fn, name, config,
-                      args.output_dir, verify=args.verify)
+    if args.legacy or args.bucket:
+        print("Patching backend ops for ANE (instanceNorm, leakyRelu, sin, cos)...")
+        patch_ane_ops(model)
+
+        buckets = {args.bucket: BUCKETS[args.bucket]} if args.bucket else BUCKETS
+        for name, config in buckets.items():
+            export_bucket(pipeline, model, set_phases_fn, name, config,
+                          args.output_dir, verify=args.verify)
+    else:
+        # Dynamic export — no ANE patches, no fixed padding
+        export_dynamic(pipeline, model, set_phases_fn, args.output_dir,
+                       verify=args.verify)
 
     print(f"\nDone. Models in {args.output_dir}/")
 
