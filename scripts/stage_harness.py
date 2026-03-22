@@ -209,6 +209,93 @@ def print_results(results):
     print(f"{'='*w}")
 
 # ---------------------------------------------------------------------------
+# HTML report
+# ---------------------------------------------------------------------------
+
+def generate_html(results, audio_dir, commit):
+    valid = [r for r in results if "error" not in r and r["name"] != "WORST"]
+    worst = next((r for r in results if r["name"] == "WORST"), None)
+    lengths = list(TEST_SENTENCES.keys())
+
+    def status_class(r):
+        if r.get("error"):
+            return "fail"
+        return "pass" if (r["corr"] >= THRESH_CORR and r["spike_rate"] <= THRESH_SPIKES
+                          and r["speed_ms"] <= THRESH_SPEED_MS) else "fail"
+
+    rows = ""
+    for r in results:
+        name = r["name"]
+        if r.get("error"):
+            rows += f'<tr><td>{name}</td><td class="fail">FAIL</td>' + '<td>—</td>' * 4 + '</tr>\n'
+            continue
+        cls = status_class(r)
+        label = "PASS" if cls == "pass" else "FAIL"
+        rows += (f'<tr><td>{"<strong>" + name + "</strong>" if name == "WORST" else name}</td>'
+                 f'<td class="{cls}">{label}</td>'
+                 f'<td>{r["corr"]:.4f}</td><td>{r["p999"]:.4f}</td>'
+                 f'<td>{r["spike_rate"]:.0f}</td><td class="ms">{r["speed_ms"]:.0f}ms</td></tr>\n')
+
+    # Audio comparison rows for benchmark voice
+    audio_rows = ""
+    for label in lengths:
+        desc = TEST_SENTENCES[label][:40] + ("..." if len(TEST_SENTENCES[label]) > 40 else "")
+        audio_rows += (
+            f'<tr><td>{label}<br><span class="ms">{desc}</span></td>\n'
+            f'<td><audio controls src="{BENCHMARK_VOICE}_{label}_vanilla_pytorch.wav"></audio></td>\n'
+            f'<td><audio controls src="{BENCHMARK_VOICE}_{label}_coreml.wav"></audio></td></tr>\n'
+        )
+
+    # Multi-voice rows
+    voice_rows = ""
+    for voice in AUDIO_VOICES:
+        cells = f"<td>{voice}</td>"
+        for label in lengths:
+            cells += f'<td><audio controls src="{voice}_{label}_coreml.wav"></audio></td>'
+        voice_rows += f"<tr>{cells}</tr>\n"
+
+    html = f"""<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<title>Stage Harness Results — {commit}</title>
+<style>
+body{{font-family:-apple-system,sans-serif;max-width:960px;margin:2em auto;padding:0 1em;background:#1a1a2e;color:#e0e0e0}}
+h1{{color:#c4b5fd}}h2{{color:#818cf8;margin-top:2em}}
+table{{border-collapse:collapse;width:100%;margin:1em 0}}
+th,td{{padding:8px 12px;text-align:left;border-bottom:1px solid #333}}
+th{{color:#67e8f9;font-size:.85em;text-transform:uppercase}}
+.pass{{color:#34d399}}.fail{{color:#f87171}}
+.ms{{font-family:monospace;color:#a78bfa;font-size:.85em}}
+audio{{width:260px;height:32px}}
+.meta{{color:#888;font-size:.9em}}
+</style>
+</head><body>
+<h1>Stage Harness Results</h1>
+<p class="meta">Commit: {commit} &bull; Voice: {BENCHMARK_VOICE} &bull; Thresholds: corr &ge; {THRESH_CORR}, spikes &le; {THRESH_SPIKES}/s, speed &le; {THRESH_SPEED_MS}ms</p>
+
+<h2>Quality Metrics</h2>
+<table>
+<tr><th>Test</th><th>Status</th><th>Correlation</th><th>p99.9</th><th>Spikes/s</th><th>Speed</th></tr>
+{rows}</table>
+
+<h2>Audio Comparison ({BENCHMARK_VOICE})</h2>
+<table>
+<tr><th>Length</th><th>Vanilla PyTorch</th><th>CoreML</th></tr>
+{audio_rows}</table>
+
+<h2>Multi-Voice Samples (CoreML)</h2>
+<table>
+<tr><th>Voice</th>{"".join(f"<th>{l}</th>" for l in lengths)}</tr>
+{voice_rows}</table>
+</body></html>"""
+
+    path = os.path.join(audio_dir, "index.html")
+    with open(path, "w") as f:
+        f.write(html)
+    print(f"\nHTML report: {path}")
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -319,6 +406,7 @@ def main():
                 pass
 
     print_results(results)
+    generate_html(results, audio_dir, commit)
     print(f"\nAudio saved to: {audio_dir}")
 
     shutil.rmtree(export_dir, ignore_errors=True)
