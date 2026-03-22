@@ -79,14 +79,14 @@ body {
 }
 
 section {
-  padding: 5rem 0;
+  padding: 3.5rem 0;
 }
 
 /* ── Hero ── */
 
 .hero {
   text-align: center;
-  padding: 8rem 0 5rem;
+  padding: 5rem 0 3rem;
   position: relative;
   overflow: hidden;
 }
@@ -105,7 +105,7 @@ section {
 
 button.hero-glyph {
   display: block;
-  margin: 0 auto 2rem;
+  margin: 0 auto 1.25rem;
   padding: 0;
   background: none;
   border: none;
@@ -203,7 +203,7 @@ button.hero-glyph.playing .hero-glyph-hint {
 .hero .sub-tagline {
   font-size: 1rem;
   color: var(--text-dim);
-  margin-bottom: 2.5rem;
+  margin-bottom: 1.75rem;
   max-width: 520px;
   margin-left: auto;
   margin-right: auto;
@@ -266,7 +266,7 @@ button.hero-glyph.playing .hero-glyph-hint {
 .pitch {
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
-  padding: 4rem 0;
+  padding: 3rem 0;
 }
 
 .pitch-grid {
@@ -296,7 +296,7 @@ button.hero-glyph.playing .hero-glyph-hint {
 /* ── Neural Engine callout ── */
 
 .ane {
-  padding: 6rem 0;
+  padding: 3.5rem 0;
   position: relative;
   overflow: hidden;
 }
@@ -390,7 +390,7 @@ button.hero-glyph.playing .hero-glyph-hint {
 /* ── Voices ── */
 
 .voices {
-  padding: 5rem 0;
+  padding: 3.5rem 0;
   text-align: center;
 }
 
@@ -497,7 +497,7 @@ button.voice-chip.playing .voice-play::after {
 /* ── Code section ── */
 
 .code-section {
-  padding: 4rem 0;
+  padding: 3rem 0;
   text-align: center;
 }
 
@@ -548,7 +548,7 @@ button.voice-chip.playing .voice-play::after {
 /* ── Features grid ── */
 
 .features {
-  padding: 5rem 0;
+  padding: 3.5rem 0;
 }
 
 .features h2 {
@@ -592,7 +592,7 @@ button.voice-chip.playing .voice-play::after {
 .perf {
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
-  padding: 4rem 0;
+  padding: 3rem 0;
 }
 
 .perf-grid {
@@ -624,7 +624,7 @@ button.voice-chip.playing .voice-play::after {
 /* ── Use cases ── */
 
 .usecases {
-  padding: 5rem 0;
+  padding: 3.5rem 0;
   text-align: center;
 }
 
@@ -673,7 +673,7 @@ button.voice-chip.playing .voice-play::after {
 /* ── CLI terminal ── */
 
 .cli {
-  padding: 5rem 0;
+  padding: 3.5rem 0;
   text-align: center;
 }
 
@@ -736,7 +736,7 @@ button.voice-chip.playing .voice-play::after {
 
 .install {
   border-top: 1px solid var(--border);
-  padding: 5rem 0;
+  padding: 3.5rem 0;
   text-align: center;
 }
 
@@ -807,7 +807,7 @@ button.voice-chip.playing .voice-play::after {
 /* ── API reference ── */
 
 .api-ref {
-  padding: 5rem 0;
+  padding: 3.5rem 0;
 }
 
 .api-ref h2 {
@@ -897,7 +897,7 @@ button.voice-chip.playing .voice-play::after {
   }
 
   section {
-    padding: 3rem 0;
+    padding: 2.5rem 0;
   }
 
   .container {
