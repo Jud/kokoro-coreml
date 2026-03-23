@@ -136,12 +136,9 @@ def export_dynamic(output_dir):
 # CoreML inference
 # ---------------------------------------------------------------------------
 
-def run_coreml(fe_model, be_model, token_ids, ref_s, *, fp16_voices=False):
+def run_coreml(fe_model, be_model, token_ids, ref_s):
     n = len(token_ids)
     ref_s_np = ref_s.detach().numpy().astype(np.float32)
-    # Simulate float16 voice embedding precision loss (as stored in .bin files)
-    if fp16_voices:
-        ref_s_np = ref_s_np.astype(np.float16).astype(np.float32)
 
     fe_out = fe_model.predict({
         "input_ids": np.array([token_ids], dtype=np.int32),
@@ -334,85 +331,39 @@ audio{{width:220px;height:32px}}
 # Main
 # ---------------------------------------------------------------------------
 
-def main():
-    commit = _git_short_hash()
-    audio_dir = os.path.join(_repo_root(), "research", "audio", commit)
-    os.makedirs(audio_dir, exist_ok=True)
+def _load_coreml_pair(fe_path, be_path):
+    """Load a frontend/backend CoreML model pair."""
+    fe = ct.models.MLModel(fe_path, compute_units=ct.ComputeUnit.CPU_ONLY)
+    _be = {}
+    def _load():
+        _be['m'] = ct.models.MLModel(be_path, compute_units=ct.ComputeUnit.ALL)
+    t = threading.Thread(target=_load); t.start(); t.join()
+    return fe, _be['m']
 
-    # Load patched model for quantitative PyTorch reference
-    print("Loading model...")
-    pipeline, model, set_phases_fn = load_patched_model()
 
-    # Export dynamic models (subprocess)
-    export_dir = tempfile.mkdtemp(prefix="harness_")
-    print("Exporting dynamic model...")
-    try:
-        export_dynamic(export_dir)
-    except Exception as e:
-        print(f"Export failed: {e}")
-        return
-
-    fe_path = os.path.join(export_dir, "kokoro_frontend.mlpackage")
-    be_path = os.path.join(export_dir, "kokoro_backend.mlpackage")
-
-    # Load CoreML models
-    fe_model = ct.models.MLModel(fe_path, compute_units=ct.ComputeUnit.CPU_ONLY)
-    be_loaded = {}
-    def _load_be():
-        be_loaded['m'] = ct.models.MLModel(be_path, compute_units=ct.ComputeUnit.ALL)
-    t = threading.Thread(target=_load_be); t.start(); t.join()
-    be_model = be_loaded['m']
-
-    # Generate vanilla PyTorch audio for listening (subprocess)
-    vanilla_dir = tempfile.mkdtemp(prefix="vanilla_")
-    print("Generating vanilla reference...")
-    try:
-        generate_vanilla_reference(BENCHMARK_VOICE, TEST_SENTENCES, vanilla_dir)
-    except Exception as e:
-        print(f"Vanilla reference failed: {e}")
-
-    # Benchmark: patched PyTorch vs CoreML (quantitative)
+def _benchmark_variant(name, fe, be, pipeline, model, set_phases_fn, voice_pack, audio_dir):
+    """Run a CoreML variant against patched PyTorch and return results."""
     results = []
-    voice_pack = pipeline.load_voice(BENCHMARK_VOICE)
-
     for label, text in TEST_SENTENCES.items():
         token_ids = _tokenize(text, pipeline)
-        n = len(token_ids)
-        ref_s = voice_pack[n]
-
+        ref_s = voice_pack[len(token_ids)]
         try:
-            # Patched PyTorch reference (same model, same inputs)
             py_audio = run_patched_pytorch(model, set_phases_fn, token_ids, ref_s)
-
-            # CoreML (with float16 voice embeddings, matching .bin format)
-            cm_audio, speed_s = run_coreml(fe_model, be_model, token_ids, ref_s,
-                                           fp16_voices=False)
-
+            cm_audio, speed_s = run_coreml(fe, be, token_ids, ref_s)
             metrics = compare(py_audio, cm_audio)
             results.append({
-                "name": label,
-                "corr": metrics["corr"],
-                "p999": metrics["p999"],
-                "spike_rate": metrics["spike_rate"],
-                "speed_ms": speed_s * 1000,
+                "name": label, "corr": metrics["corr"], "p999": metrics["p999"],
+                "spike_rate": metrics["spike_rate"], "speed_ms": speed_s * 1000,
             })
-
-            # Save patched PyTorch + CoreML audio
-            sf.write(os.path.join(audio_dir, f"{BENCHMARK_VOICE}_{label}_patched_pytorch.wav"),
-                     py_audio, 24000)
-            sf.write(os.path.join(audio_dir, f"{BENCHMARK_VOICE}_{label}_coreml.wav"),
+            sf.write(os.path.join(audio_dir, f"{BENCHMARK_VOICE}_{label}_{name}.wav"),
                      cm_audio, 24000)
-
-            # Copy vanilla PyTorch audio if available
-            vanilla_path = os.path.join(vanilla_dir, f"{label}.wav")
-            if os.path.exists(vanilla_path):
-                shutil.copy(vanilla_path,
-                    os.path.join(audio_dir, f"{BENCHMARK_VOICE}_{label}_vanilla_pytorch.wav"))
-
+            # Save patched PyTorch (once, from float32 run)
+            if name == "coreml":
+                sf.write(os.path.join(audio_dir, f"{BENCHMARK_VOICE}_{label}_patched_pytorch.wav"),
+                         py_audio, 24000)
         except Exception as e:
             results.append({"name": label, "error": str(e)[:80]})
 
-    # Worst case
     valid = [r for r in results if "error" not in r]
     if valid:
         results.append({
@@ -422,70 +373,80 @@ def main():
             "spike_rate": max(r["spike_rate"] for r in valid),
             "speed_ms": max(r["speed_ms"] for r in valid),
         })
+    return results
 
-    # Extra voices (CoreML only)
+
+def main():
+    commit = _git_short_hash()
+    audio_dir = os.path.join(_repo_root(), "research", "audio", commit)
+    os.makedirs(audio_dir, exist_ok=True)
+
+    # Load patched model for quantitative PyTorch reference
+    print("Loading model...")
+    pipeline, model, set_phases_fn = load_patched_model()
+    voice_pack = pipeline.load_voice(BENCHMARK_VOICE)
+
+    # Export dynamic models + palettized variants (subprocess)
+    export_dir = tempfile.mkdtemp(prefix="harness_")
+    print("Exporting dynamic models...")
+    try:
+        export_dynamic(export_dir)
+    except Exception as e:
+        print(f"Export failed: {e}")
+        return
+
+    # Generate vanilla PyTorch audio for listening (subprocess)
+    vanilla_dir = tempfile.mkdtemp(prefix="vanilla_")
+    print("Generating vanilla reference...")
+    try:
+        generate_vanilla_reference(BENCHMARK_VOICE, TEST_SENTENCES, vanilla_dir)
+        for label in TEST_SENTENCES:
+            vanilla_path = os.path.join(vanilla_dir, f"{label}.wav")
+            if os.path.exists(vanilla_path):
+                shutil.copy(vanilla_path,
+                    os.path.join(audio_dir, f"{BENCHMARK_VOICE}_{label}_vanilla_pytorch.wav"))
+    except Exception as e:
+        print(f"Vanilla reference failed: {e}")
+
+    # --- Float32 dynamic models ---
+    print("\nTesting float32 dynamic models...")
+    fe_f32, be_f32 = _load_coreml_pair(
+        os.path.join(export_dir, "kokoro_frontend.mlpackage"),
+        os.path.join(export_dir, "kokoro_backend.mlpackage"))
+
+    results = _benchmark_variant("coreml", fe_f32, be_f32,
+                                  pipeline, model, set_phases_fn, voice_pack, audio_dir)
+    print("\nFloat32:")
+    print_results(results)
+
+    # Extra voices (float32 only)
     for voice in AUDIO_VOICES:
         if voice == BENCHMARK_VOICE:
             continue
         vp = pipeline.load_voice(voice)
         for label, text in TEST_SENTENCES.items():
-            phonemes, _ = pipeline.g2p(text)
-            raw = list(filter(lambda i: i is not None,
-                map(lambda p: model.vocab.get(p), phonemes)))
-            token_ids = [0] + raw + [0]
+            token_ids = _tokenize(text, pipeline)
             ref_s = vp[len(token_ids)]
             try:
-                cm_audio, _ = run_coreml(fe_model, be_model, token_ids, ref_s,
-                                        fp16_voices=False)
+                cm_audio, _ = run_coreml(fe_f32, be_f32, token_ids, ref_s)
                 sf.write(os.path.join(audio_dir, f"{voice}_{label}_coreml.wav"),
                          cm_audio, 24000)
             except Exception:
                 pass
 
-    # Palettized model comparison (if available)
+    # --- Palettized 8-bit models ---
     pal_results = []
     pal_fe_path = os.path.join(export_dir, "kokoro_frontend_pal8.mlpackage")
     pal_be_path = os.path.join(export_dir, "kokoro_backend_pal8.mlpackage")
 
     if os.path.exists(pal_fe_path) and os.path.exists(pal_be_path):
-        print("\nTesting palettized models...")
-        fe_pal = ct.models.MLModel(pal_fe_path, compute_units=ct.ComputeUnit.CPU_ONLY)
-        _pal_be = {}
-        def _load_pal_be():
-            _pal_be['m'] = ct.models.MLModel(pal_be_path, compute_units=ct.ComputeUnit.ALL)
-        t = threading.Thread(target=_load_pal_be); t.start(); t.join()
-        be_pal = _pal_be['m']
-
-        for label, text in TEST_SENTENCES.items():
-            token_ids = _tokenize(text, pipeline)
-            ref_s = voice_pack[len(token_ids)]
-            try:
-                py_audio = run_patched_pytorch(model, set_phases_fn, token_ids, ref_s)
-                cm_audio, speed_s = run_coreml(fe_pal, be_pal, token_ids, ref_s)
-                metrics = compare(py_audio, cm_audio)
-                pal_results.append({
-                    "name": label, "corr": metrics["corr"], "p999": metrics["p999"],
-                    "spike_rate": metrics["spike_rate"], "speed_ms": speed_s * 1000,
-                })
-                sf.write(os.path.join(audio_dir, f"{BENCHMARK_VOICE}_{label}_pal8.wav"),
-                         cm_audio, 24000)
-            except Exception as e:
-                pal_results.append({"name": label, "error": str(e)[:80]})
-
-        pal_valid = [r for r in pal_results if "error" not in r]
-        if pal_valid:
-            pal_results.append({
-                "name": "WORST",
-                "corr": min(r["corr"] for r in pal_valid),
-                "p999": max(r["p999"] for r in pal_valid),
-                "spike_rate": max(r["spike_rate"] for r in pal_valid),
-                "speed_ms": max(r["speed_ms"] for r in pal_valid),
-            })
+        print("\nTesting palettized 8-bit models...")
+        fe_pal, be_pal = _load_coreml_pair(pal_fe_path, pal_be_path)
+        pal_results = _benchmark_variant("pal8", fe_pal, be_pal,
+                                          pipeline, model, set_phases_fn, voice_pack, audio_dir)
         print("\nPalettized 8-bit:")
         print_results(pal_results)
 
-    print("\nFloat32:")
-    print_results(results)
     generate_html(results, audio_dir, commit, pal_results=pal_results)
     print(f"\nAudio saved to: {audio_dir}")
 

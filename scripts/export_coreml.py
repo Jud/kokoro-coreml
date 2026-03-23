@@ -884,12 +884,8 @@ def main():
     parser = argparse.ArgumentParser(description="Export Kokoro-82M to CoreML")
     parser.add_argument("--output-dir", default="./models_export")
     parser.add_argument("--verify", action="store_true")
-    parser.add_argument("--bucket", choices=list(BUCKETS.keys()),
-                        help="Export fixed-size bucket (legacy)")
-    parser.add_argument("--dynamic", action="store_true", default=True,
-                        help="Export dynamic model (default)")
-    parser.add_argument("--legacy", action="store_true",
-                        help="Export legacy fixed-size buckets with ANE patches")
+    parser.add_argument("--skip-palettize", action="store_true",
+                        help="Skip palettized model export")
     args = parser.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
@@ -904,20 +900,12 @@ def main():
     # but doesn't affect output when there's no padding (batch=1, no masked tokens)
     patch_pack_padded_sequence()
 
-    if args.legacy or args.bucket:
-        print("Patching backend ops for ANE (instanceNorm, leakyRelu, sin, cos)...")
-        patch_ane_ops(model)
+    # Dynamic export — no ANE patches, no fixed padding
+    export_dynamic(pipeline, model, set_phases_fn, args.output_dir,
+                   verify=args.verify)
 
-        buckets = {args.bucket: BUCKETS[args.bucket]} if args.bucket else BUCKETS
-        for name, config in buckets.items():
-            export_bucket(pipeline, model, set_phases_fn, name, config,
-                          args.output_dir, verify=args.verify)
-    else:
-        # Dynamic export — no ANE patches, no fixed padding
-        export_dynamic(pipeline, model, set_phases_fn, args.output_dir,
-                       verify=args.verify)
-
-        # Also export palettized variants for tracking
+    # Also export palettized variants for quality tracking
+    if not args.skip_palettize:
         _export_palettized(args.output_dir)
 
     print(f"\nDone. Models in {args.output_dir}/")
