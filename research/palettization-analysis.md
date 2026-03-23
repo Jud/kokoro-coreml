@@ -30,6 +30,16 @@ Does palettization introduce static or high-frequency artifacts?
 
 No. Identical noise floor. Identical SNR. Zero artifacts introduced.
 
+## Baselines — what does "perfect" look like?
+
+| Comparison | Spectral Corr |
+|-----------|--------------|
+| Vanilla PyTorch vs itself | 1.0000 |
+| Patched PyTorch vs itself | 1.0000 |
+| Vanilla PyTorch vs Patched PyTorch (same text, different runs) | 0.5230 |
+
+Even two different PyTorch runs of the same text only score 0.52 spectral correlation against each other — because random vocoder phases differ between runs. This is the ceiling for cross-pipeline comparison. Our dynamic CoreML models score 0.52 against vanilla, matching what PyTorch scores against itself across runs.
+
 ## Negative control — can we detect actually bad audio?
 
 We had old bucket models where short text on a large bucket sounded terrible (97% padding). If our metrics can't distinguish those from good audio, they're useless.
