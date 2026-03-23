@@ -53,7 +53,10 @@ let package = Package(
             name: "KokoroCoreMLTests",
             dependencies: ["KokoroCoreML"],
             path: "Tests/KokoroCoreMLTests",
-            resources: [.process("kokoro_g2p_reference.json")]
+            resources: [.process("kokoro_g2p_reference.json")],
+            swiftSettings: [
+                .define("ESPEAK_NG", .when(traits: ["espeak"]))
+            ]
         ),
     ]
 )

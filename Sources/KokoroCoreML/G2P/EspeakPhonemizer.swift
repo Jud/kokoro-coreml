@@ -105,6 +105,16 @@
             espeak_ng_SetPhonemeEvents(1, 0)
         }
 
+        /// Test-only init that assumes eSpeak is already initialized externally.
+        static func _testOnly_withPreinitializedEspeak(language: String) throws -> EspeakPhonemizer {
+            let instance = EspeakPhonemizer(alreadyInitialized: true, language: language)
+            return instance
+        }
+
+        private init(alreadyInitialized: Bool, language: String) {
+            self.language = language
+        }
+
         deinit {
             espeak_Terminate()
         }
