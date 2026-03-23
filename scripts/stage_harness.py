@@ -126,11 +126,26 @@ def generate_vanilla_reference(voice, sentences, output_dir):
 def export_dynamic(output_dir):
     result = subprocess.run(
         [sys.executable, os.path.join(SCRIPT_DIR, "export_coreml.py"),
-         "--output-dir", output_dir],
+         "--output-dir", output_dir, "--skip-palettize"],
         capture_output=True, text=True, cwd=SCRIPT_DIR, timeout=600,
     )
     if result.returncode != 0:
         raise RuntimeError(f"Export failed: {result.stderr[-300:]}")
+
+
+def palettize_models(export_dir):
+    """Create palettized variants from exported float32 models."""
+    import coremltools.optimize.coreml as cto
+    config = cto.OptimizationConfig(global_config=cto.OpPalettizerConfig(nbits=8))
+    for name in ["kokoro_frontend", "kokoro_backend"]:
+        src = os.path.join(export_dir, f"{name}.mlpackage")
+        dst = os.path.join(export_dir, f"{name}_pal8.mlpackage")
+        if not os.path.exists(src):
+            continue
+        print(f"  Palettizing {name}...")
+        model = ct.models.MLModel(src)
+        quantized = cto.palettize_weights(model, config)
+        quantized.save(dst)
 
 # ---------------------------------------------------------------------------
 # CoreML inference
@@ -394,6 +409,13 @@ def main():
     except Exception as e:
         print(f"Export failed: {e}")
         return
+
+    # Palettize in-process (avoids subprocess timeout)
+    print("Palettizing models...")
+    try:
+        palettize_models(export_dir)
+    except Exception as e:
+        print(f"Palettization failed: {e}")
 
     # Generate vanilla PyTorch audio for listening (subprocess)
     vanilla_dir = tempfile.mkdtemp(prefix="vanilla_")
