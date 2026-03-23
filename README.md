@@ -182,6 +182,8 @@ graph TD
 
 ## model
 
+based on [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) by hexgrad.
+
 - **architecture**: Kokoro-82M -- StyleTTS2 encoder + iSTFTNet vocoder
 - **weights**: 8-bit palettized (75% smaller than float32, perceptually identical)
 - **runtime**: CoreML -- frontend on CPU, backend on GPU via Apple Silicon
