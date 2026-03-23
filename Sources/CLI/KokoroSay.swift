@@ -61,6 +61,11 @@ struct Say: AsyncParsableCommand {
     @Flag(name: .long, help: "List available voices")
     var listVoices = false
 
+    #if ESPEAK_NG
+        @Flag(name: .long, help: "List supported languages")
+        var listLanguages = false
+    #endif
+
     @Argument(help: "Text to synthesize (reads stdin if omitted)")
     var text: [String] = []
 
@@ -100,6 +105,26 @@ struct Say: AsyncParsableCommand {
         }
     }
 
+    #if ESPEAK_NG
+        /// eSpeak language code → Kokoro voice prefix → default voice
+        private static let languageVoices:
+            [(lang: String, name: String, prefix: String, defaultVoice: String)] = [
+                ("en", "English (American)", "a", "af_heart"),
+                ("en-gb", "English (British)", "b", "bf_emma"),
+                ("es", "Spanish", "e", "ef_dora"),
+                ("fr", "French", "f", "ff_siwis"),
+                ("hi", "Hindi", "h", "hf_alpha"),
+                ("it", "Italian", "i", "if_sara"),
+                ("ja", "Japanese", "j", "jf_gongitsune"),
+                ("pt", "Portuguese", "p", "pf_dora"),
+                ("cmn", "Mandarin", "z", "zf_xiaoxiao"),
+            ]
+
+        private func defaultVoice(forLanguage lang: String) -> String? {
+            Self.languageVoices.first { $0.lang == lang }?.defaultVoice
+        }
+    #endif
+
     private func execute() throws {
         // --list-voices needs the engine, handle separately
         if listVoices {
@@ -107,6 +132,29 @@ struct Say: AsyncParsableCommand {
             for v in engine.availableVoices.sorted() { print(v) }
             return
         }
+
+        #if ESPEAK_NG
+            if listLanguages {
+                print("Supported languages (use with --language):\n")
+                for lv in Self.languageVoices {
+                    print(
+                        "  \(lv.lang.padding(toLength: 6, withPad: " ", startingAt: 0))  \(lv.name.padding(toLength: 22, withPad: " ", startingAt: 0))  default voice: \(lv.defaultVoice)"
+                    )
+                }
+                return
+            }
+        #endif
+
+        // Resolve effective voice (may be overridden by --language)
+        var effectiveVoice = voice
+        #if ESPEAK_NG
+            if let lang = language, voice == "af_heart",
+                let defaultV = defaultVoice(forLanguage: lang)
+            {
+                effectiveVoice = defaultV
+            }
+        #endif
+        let voice = effectiveVoice
 
         // Resolve text once for both paths
         let inputText = try resolveText()
