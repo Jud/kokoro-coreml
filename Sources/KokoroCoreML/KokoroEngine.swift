@@ -112,7 +112,16 @@ public final class KokoroEngine: @unchecked Sendable {
     /// Returns immediately — models load and warm up in the background.
     /// Synthesis calls block until loading completes. Check ``isReady``
     /// to know when warmup is fully done.
-    public init(modelDirectory: URL, phonemizer: (any Phonemizer)? = nil) throws {
+    /// When `true`, forces all CoreML models to run on CPU only.
+    /// Required for iOS Simulator where GPU compute produces garbage output.
+    private let forceCPU: Bool
+
+    public init(
+        modelDirectory: URL,
+        phonemizer: (any Phonemizer)? = nil,
+        forceCPU: Bool = false
+    ) throws {
+        self.forceCPU = forceCPU
         guard ModelManager.modelsAvailable(at: modelDirectory) else {
             throw KokoroError.modelsNotAvailable(modelDirectory)
         }
@@ -170,6 +179,22 @@ public final class KokoroEngine: @unchecked Sendable {
             speed: clampedSpeed, startTime: t0)
     }
 
+    /// Synthesize text using a raw 256-dim style vector instead of a named voice.
+    ///
+    /// The same style vector is used for all chunks (no length-indexed lookup).
+    /// Use this for voice cloning where you have a custom blended embedding.
+    public func synthesize(
+        text: String, styleVector: [Float], speed: Float = 1.0
+    ) throws -> SynthesisResult {
+        let t0 = CFAbsoluteTimeGetCurrent()
+        let clampedSpeed = Self.clampSpeed(speed)
+        let (fullPhonemes, mergedIds) = prepareChunks(text: text)
+
+        return try synthesizeTokensWithEmbedding(
+            phonemes: fullPhonemes, mergedIds: mergedIds,
+            styleVector: styleVector, speed: clampedSpeed, startTime: t0)
+    }
+
     private func synthesizeTokens(
         phonemes: String, mergedIds: [[Int]], voice: String,
         speed: Float, startTime: CFAbsoluteTime
@@ -184,6 +209,39 @@ public final class KokoroEngine: @unchecked Sendable {
 
             let styleVector = try voiceStore.embedding(
                 for: voice, tokenCount: tokenIds.count - 2)
+
+            var (samples, durations) = try synthesizeChunk(
+                tokenIds: tokenIds, styleVector: styleVector, speed: speed)
+
+            Self.applyFades(&samples)
+            if !allSamples.isEmpty {
+                allSamples.append(
+                    contentsOf: [Float](repeating: 0, count: Self.interChunkSilence))
+            }
+            allSamples.append(contentsOf: samples)
+            allDurations.append(contentsOf: durations)
+        }
+
+        Self.postProcess(&allSamples)
+
+        let elapsed = CFAbsoluteTimeGetCurrent() - startTime
+        return SynthesisResult(
+            samples: allSamples, phonemes: phonemes,
+            tokenDurations: allDurations, tokenCount: totalTokens,
+            synthesisTime: elapsed)
+    }
+
+    private func synthesizeTokensWithEmbedding(
+        phonemes: String, mergedIds: [[Int]], styleVector: [Float],
+        speed: Float, startTime: CFAbsoluteTime
+    ) throws -> SynthesisResult {
+
+        var allSamples: [Float] = []
+        var allDurations: [Int] = []
+        var totalTokens = 0
+
+        for tokenIds in mergedIds {
+            totalTokens += tokenIds.count
 
             var (samples, durations) = try synthesizeChunk(
                 tokenIds: tokenIds, styleVector: styleVector, speed: speed)
@@ -296,6 +354,22 @@ public final class KokoroEngine: @unchecked Sendable {
         voiceStore.availableVoices
     }
 
+    /// All voice names with their generic 256-dim style embeddings.
+    ///
+    /// Use for voice cloning: compare user audio against each embedding's
+    /// synthesized output to find the closest starting point.
+    public var voiceEmbeddings: [(name: String, embedding: [Float])] {
+        voiceStore.allGenericEmbeddings()
+    }
+
+    /// Register a custom voice at runtime.
+    ///
+    /// The embedding is immediately available for synthesis by name.
+    /// Does not persist to disk — use ``VoiceStore`` binary format for that.
+    public func registerVoice(name: String, embedding: [Float]) {
+        voiceStore.registerVoice(name: name, embedding: embedding)
+    }
+
     // MARK: - Loading & Warmup
 
     /// Block until both models are loaded, or throw if loading failed.
@@ -321,7 +395,7 @@ public final class KokoroEngine: @unchecked Sendable {
         let feConfig = MLModelConfiguration()
         feConfig.computeUnits = .cpuOnly
         let beConfig = MLModelConfiguration()
-        beConfig.computeUnits = .all
+        beConfig.computeUnits = forceCPU ? .cpuOnly : .all
 
         // Start backend on a separate thread (GPU shader compilation is the slow part)
         var loadedBE: MLModel?
@@ -715,6 +789,49 @@ public final class KokoroEngine: @unchecked Sendable {
                         let styleVector = try self.voiceStore.embedding(
                             for: voice, tokenCount: tokenIds.count - 2)
 
+                        var (samples, _) = try self.synthesizeChunk(
+                            tokenIds: tokenIds, styleVector: styleVector,
+                            speed: clampedSpeed)
+                        Self.applyFades(&samples)
+                        Self.postProcess(&samples)
+
+                        if let buffer = Self.makePCMBuffer(from: samples, format: format) {
+                            continuation.yield(.audio(buffer))
+                        }
+                    } catch {
+                        Self.logger.error(
+                            "Streaming chunk failed: \(error.localizedDescription)")
+                        continuation.yield(.chunkFailed(error))
+                    }
+                }
+
+                continuation.finish()
+            }
+            thread.stackSize = 8 * 1024 * 1024
+            nonisolated(unsafe) let unsafeThread = thread
+            continuation.onTermination = { _ in unsafeThread.cancel() }
+            thread.start()
+        }
+    }
+
+    /// Stream synthesized audio using a raw 256-dim style vector.
+    public func speak(
+        _ text: String,
+        styleVector: [Float],
+        speed: Float = 1.0
+    ) throws -> AsyncStream<SpeakEvent> {
+        let clampedSpeed = Self.clampSpeed(speed)
+        let (_, mergedIds) = prepareChunks(text: text)
+        guard !mergedIds.isEmpty else { return AsyncStream { $0.finish() } }
+
+        return AsyncStream { continuation in
+            let thread = Thread {
+                let format = Self.audioFormat
+
+                for tokenIds in mergedIds {
+                    if Thread.current.isCancelled { break }
+
+                    do {
                         var (samples, _) = try self.synthesizeChunk(
                             tokenIds: tokenIds, styleVector: styleVector,
                             speed: clampedSpeed)
