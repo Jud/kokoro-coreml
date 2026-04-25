@@ -83,9 +83,6 @@ public final class KokoroEngine: @unchecked Sendable {
     /// Maximum audio to keep before the first non-BOS token when trimming BOS output.
     private static let maxLeadingBOSPreroll = 2040  // 85ms at 24kHz
 
-    /// Fallback BOS preroll when no onset energy is detected.
-    private static let fallbackLeadingBOSPreroll = 1800  // 75ms at 24kHz
-
     /// Tail of the BOS span scanned for onset energy.
     private static let leadingBOSSearchWindow = 3000  // 125ms at 24kHz
 
@@ -736,7 +733,7 @@ public final class KokoroEngine: @unchecked Sendable {
     }
 
     /// Choose how much of the leading BOS span to remove without cutting first-phoneme onset.
-    private static func adaptiveLeadingBOSTrimSamples(
+    static func adaptiveLeadingBOSTrimSamples(
         in samples: [Float], leadSamples: Int, speed: Float
     ) -> Int {
         guard leadSamples > 0 else { return 0 }
@@ -749,13 +746,10 @@ public final class KokoroEngine: @unchecked Sendable {
         let scaledMaxPreroll = max(
             scaledMinPreroll,
             Int((Float(maxLeadingBOSPreroll) * speedScale).rounded()))
-        let scaledFallbackPreroll = min(
-            scaledMaxPreroll,
-            max(scaledMinPreroll, Int((Float(fallbackLeadingBOSPreroll) * speedScale).rounded())))
 
         let minPreroll = min(scaledMinPreroll, clampedLeadSamples)
         let maxPreroll = min(scaledMaxPreroll, clampedLeadSamples)
-        let fallbackPreroll = min(scaledFallbackPreroll, clampedLeadSamples)
+        let fallbackPreroll = min(leadingBOSOnsetMargin, clampedLeadSamples)
         let searchStart = max(0, clampedLeadSamples - leadingBOSSearchWindow)
         let window = leadingBOSAnalysisWindow
         guard clampedLeadSamples - searchStart >= window else {
@@ -778,7 +772,7 @@ public final class KokoroEngine: @unchecked Sendable {
         }
 
         guard maxRMS > 0 else {
-            return max(0, clampedLeadSamples - minPreroll)
+            return max(0, clampedLeadSamples - fallbackPreroll)
         }
 
         let baselineCount = min(5, rmsWindows.count)
