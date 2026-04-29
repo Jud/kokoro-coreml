@@ -25,6 +25,12 @@ struct TokenizerTests {
         #expect(withEmoji == without)
     }
 
+    @Test("Encoded symbol count matches dropped unknown behavior")
+    func encodedSymbolCount() throws {
+        let tok = try makeTokenizer()
+        #expect(tok.encodedSymbolCount("a🎉b") == tok.encode("ab").count - 2)
+    }
+
     @Test("Max length enforced")
     func maxLength() throws {
         let tok = try makeTokenizer()

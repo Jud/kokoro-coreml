@@ -53,6 +53,7 @@ async streaming. audio chunks arrive as they're synthesized. playback starts imm
 let engine = try KokoroEngine()
 let result = try engine.synthesize(text: "hello world", voice: "af_heart")
 // result.samples → 24kHz mono PCM float array
+// result.timestamps → text-token timings in seconds
 // result.duration → audio length in seconds
 // result.realTimeFactor → how much faster than real-time
 ```
@@ -95,13 +96,15 @@ let result = try engine.synthesize(ipa: "hˈɛloʊ wˈɜːld", voice: "af_heart"
 kokoro say "hello from the terminal"
 kokoro say -v am_adam -s 1.3 "speed it up"
 kokoro say --stream "start hearing audio before synthesis finishes"
+kokoro say --show-text "show text during playback"
+kokoro say --stream --show-text "stream audio with live text"
 kokoro say -o output.wav "save to file"
 echo "long article" | kokoro say --stream
 kokoro say --list-voices
 kokoro daemon start   # keep models loaded, 3x faster repeat synthesis
 ```
 
-`--stream` starts playback as soon as the first chunk is ready. `--ipa` accepts IPA phonemes directly.
+`--stream` starts playback as soon as the first chunk is ready. `--ipa` accepts IPA phonemes directly. `--show-text` prints text tokens in sync with playback and cannot be combined with `--output`.
 
 ## performance
 

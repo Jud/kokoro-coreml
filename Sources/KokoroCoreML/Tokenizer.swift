@@ -74,4 +74,11 @@ final class Tokenizer: Sendable {
 
         return ids
     }
+
+    /// Count the number of symbols that will survive tokenization.
+    func encodedSymbolCount(_ phonemes: String) -> Int {
+        phonemes.reduce(0) { count, char in
+            count + (vocab[String(char)] == nil ? 0 : 1)
+        }
+    }
 }
