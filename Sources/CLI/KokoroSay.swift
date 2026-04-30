@@ -104,47 +104,37 @@ struct Say: AsyncParsableCommand {
             return
         }
 
-        // Resolve text once for both paths
         let inputText = try resolveText()
 
-        // Try daemon for text synthesis. It keeps models hot and returns
-        // timestamps for --show-text when the daemon protocol is current.
         if !debug && !ipa {
             let request = SynthesisRequest(
                 text: inputText, voice: voice, speed: speed)
             switch DaemonClient.synthesize(request) {
             case .success(let response, let samples):
                 let duration = Double(samples.count) / KokoroEngine.audioFormat.sampleRate
-                let synthMs = (response.synthesisTime ?? 0) * 1000
-                let rt =
-                    (response.synthesisTime ?? 0) > 0
-                    ? duration / response.synthesisTime! : 0
+                let synthTime = response.synthesisTime ?? 0
+                let rt = synthTime > 0 ? duration / synthTime : 0
                 let stats = String(
-                    format: "%.0fms synth, %.1fs audio, %.1fx RT", synthMs, duration, rt)
+                    format: "%.0fms synth, %.1fs audio, %.1fx RT",
+                    synthTime * 1000, duration, rt)
                 print("[\(voice) daemon] \(stats)")
                 if let output {
                     try writeWAV(samples: samples, to: output)
                     print("Wrote \(output)")
                 }
                 if play || output == nil {
-                    let timestamps = response.timestamps ?? []
-                    if showText && timestamps.isEmpty {
-                        fputs("Text timestamps unavailable\n", stderr)
-                    }
-                    try playAudio(
-                        samples: samples,
-                        timestamps: showText ? timestamps : [])
+                    try playAudioWithText(
+                        samples: samples, timestamps: response.timestamps ?? [])
                 }
                 return
             case .daemonError(let message):
                 fputs("Daemon error: \(message)\n", stderr)
                 throw ExitCode.failure
             case .unavailable:
-                break  // fall through to direct engine
+                break
             }
         }
 
-        // Direct engine path
         let engine = try loadEngine()
 
         guard engine.availableVoices.contains(voice) else {
@@ -179,15 +169,9 @@ struct Say: AsyncParsableCommand {
             print("Wrote \(output)")
         }
         if play || showText || (output == nil && !debug) {
-            if showText && result.timestamps.isEmpty {
-                fputs("Text timestamps unavailable\n", stderr)
-            }
-            try playAudio(
-                samples: result.samples,
-                timestamps: showText ? result.timestamps : [])
+            try playAudioWithText(samples: result.samples, timestamps: result.timestamps)
         }
 
-        // Occasional daemon hint (not in --debug mode where user chose local)
         if !debug && !showText && Int.random(in: 0..<3) == 0 {
             fputs("Tip: run 'kokoro daemon start' for faster synthesis\n", stderr)
         }
@@ -280,6 +264,13 @@ struct Say: AsyncParsableCommand {
             throw ExitCode.failure
         }
         try file.write(from: buf)
+    }
+
+    private func playAudioWithText(samples: [Float], timestamps: [SynthesisTimestamp]) throws {
+        if showText && timestamps.isEmpty {
+            fputs("Text timestamps unavailable\n", stderr)
+        }
+        try playAudio(samples: samples, timestamps: showText ? timestamps : [])
     }
 
     private func playAudio(samples: [Float], timestamps: [SynthesisTimestamp] = []) throws {

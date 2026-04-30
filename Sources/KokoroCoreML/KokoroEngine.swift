@@ -637,18 +637,32 @@ public final class KokoroEngine: @unchecked Sendable {
     static func chunkTimestampTokens(
         _ tokens: [TimestampToken], maxPhonemes: Int, tokenizer: Tokenizer
     ) -> [[TimestampToken]] {
-        guard encodedCount(forTimestampTokens: tokens, tokenizer: tokenizer) > maxPhonemes else {
+        let phonemeCounts = tokens.map { tokenizer.encodedSymbolCount($0.phonemes) }
+        let whitespaceCounts = tokens.map { tokenizer.encodedSymbolCount($0.whitespace) }
+        var prefixCombined: [Int] = [0]
+        prefixCombined.reserveCapacity(tokens.count + 1)
+        for i in tokens.indices {
+            prefixCombined.append(prefixCombined[i] + phonemeCounts[i] + whitespaceCounts[i])
+        }
+
+        // Encoded count of tokens[lo..<hi], matching encodedCount(forTimestampTokens:).
+        // The trailing whitespace of the last token is trimmed before encoding.
+        func count(_ lo: Int, _ hi: Int) -> Int {
+            guard hi > lo else { return 0 }
+            return prefixCombined[hi] - prefixCombined[lo] - whitespaceCounts[hi - 1]
+        }
+
+        guard count(0, tokens.count) > maxPhonemes else {
             return tokens.isEmpty ? [] : [tokens]
         }
 
         var chunks: [[TimestampToken]] = []
         var current: [TimestampToken] = []
+        var startIdx = 0
 
-        for token in tokens {
+        for (tokenIdx, token) in tokens.enumerated() {
             if !current.isEmpty {
-                current.append(token)
-                let candidateCount = encodedCount(forTimestampTokens: current, tokenizer: tokenizer)
-                current.removeLast()
+                let candidateCount = count(startIdx, tokenIdx + 1)
                 if candidateCount > maxPhonemes {
                     let split = waterfallSplitIndex(
                         in: current, candidateCount: candidateCount,
@@ -657,13 +671,11 @@ public final class KokoroEngine: @unchecked Sendable {
                         chunks.append(Array(current[..<split]))
                     }
                     current = Array(current[split...])
+                    startIdx += split
 
-                    if !current.isEmpty,
-                        encodedCount(
-                            forTimestampTokens: current + [token], tokenizer: tokenizer)
-                            > maxPhonemes
-                    {
+                    if !current.isEmpty, count(startIdx, tokenIdx + 1) > maxPhonemes {
                         chunks.append(current)
+                        startIdx += current.count
                         current = []
                     }
                 }

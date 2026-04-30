@@ -115,6 +115,7 @@ enum DaemonClient {
                     }
                 }
                 thread.stackSize = 512 * 1024
+                continuation.onTermination = { _ in shutdown(fd, SHUT_RDWR) }
                 thread.start()
             })
     }
