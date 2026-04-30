@@ -18,6 +18,9 @@ struct SynthesisRequest: Codable {
     var speed: Float
     var stream: Bool?
     var includeTimestamps: Bool?
+
+    var wantsStream: Bool { stream == true }
+    var wantsTimestamps: Bool { includeTimestamps == true }
 }
 
 struct SynthesisResponse: Codable {
@@ -44,6 +47,16 @@ struct SynthesisStreamMessage: Codable {
     var error: String?
     var sampleCount: Int?
     var timestamps: [SynthesisTimestamp]?
+
+    static func audio(sampleCount: Int, timestamps: [SynthesisTimestamp]?) -> Self {
+        Self(kind: .audio, ok: true, sampleCount: sampleCount, timestamps: timestamps)
+    }
+
+    static func failure(_ error: String) -> Self {
+        Self(kind: .chunkFailed, ok: false, error: error)
+    }
+
+    static let done = Self(kind: .done, ok: true)
 }
 
 // MARK: - CBOR I/O

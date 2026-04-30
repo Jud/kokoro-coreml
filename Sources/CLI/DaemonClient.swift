@@ -63,61 +63,7 @@ enum DaemonClient {
             return .daemonError("Failed to send request")
         }
 
-        return .success(
-            AsyncStream { continuation in
-                let thread = Thread {
-                    defer {
-                        close(fd)
-                        continuation.finish()
-                    }
-
-                    while !Thread.current.isCancelled {
-                        guard let result = readStreamMessage(from: fd) else {
-                            continuation.yield(
-                                .chunkFailed(DaemonClientError(message: "Failed to read stream event")))
-                            return
-                        }
-
-                        switch result {
-                        case .success(let message):
-                            switch message.kind {
-                            case .audio:
-                                guard let sampleCount = message.sampleCount, sampleCount >= 0 else {
-                                    continue
-                                }
-                                guard let samples = LengthPrefixedIO.readRawSamples(
-                                    count: sampleCount, from: fd)
-                                else {
-                                    continuation.yield(
-                                        .chunkFailed(
-                                            DaemonClientError(message: "Failed to read stream audio data")))
-                                    return
-                                }
-                                guard !samples.isEmpty else { continue }
-                                if let buffer = KokoroEngine.makePCMBuffer(
-                                    from: samples, format: KokoroEngine.audioFormat)
-                                {
-                                    continuation.yield(
-                                        .audio(buffer, timestamps: message.timestamps ?? []))
-                                }
-                            case .chunkFailed:
-                                continuation.yield(
-                                    .chunkFailed(
-                                        DaemonClientError(
-                                            message: message.error ?? "Daemon stream chunk failed")))
-                            case .done:
-                                return
-                            }
-                        case .failure(let error):
-                            continuation.yield(.chunkFailed(error))
-                            return
-                        }
-                    }
-                }
-                thread.stackSize = 512 * 1024
-                continuation.onTermination = { _ in shutdown(fd, SHUT_RDWR) }
-                thread.start()
-            })
+        return .success(makeStream(from: fd))
     }
 
     /// Check if daemon is running by attempting a socket connect.
@@ -125,6 +71,80 @@ enum DaemonClient {
         let fd = UnixSocket.connect(to: DaemonConfig.socketPath)
         guard fd >= 0 else { return false }
         close(fd)
+        return true
+    }
+
+    private static func makeStream(from fd: Int32) -> AsyncStream<TimedSpeakEvent> {
+        AsyncStream { continuation in
+            let thread = Thread {
+                defer {
+                    close(fd)
+                    continuation.finish()
+                }
+
+                while !Thread.current.isCancelled {
+                    guard readAndYieldNextStreamEvent(from: fd, to: continuation) else {
+                        return
+                    }
+                }
+            }
+            thread.stackSize = 512 * 1024
+            continuation.onTermination = { _ in _ = shutdown(fd, SHUT_RDWR) }
+            thread.start()
+        }
+    }
+
+    private static func readAndYieldNextStreamEvent(
+        from fd: Int32, to continuation: AsyncStream<TimedSpeakEvent>.Continuation
+    ) -> Bool {
+        guard let result = readStreamMessage(from: fd) else {
+            continuation.yield(
+                .chunkFailed(DaemonClientError(message: "Failed to read stream event")))
+            return false
+        }
+
+        switch result {
+        case .failure(let error):
+            continuation.yield(.chunkFailed(error))
+            return false
+        case .success(let message):
+            switch message.kind {
+            case .audio:
+                return yieldAudio(message, from: fd, to: continuation)
+            case .chunkFailed:
+                continuation.yield(
+                    .chunkFailed(
+                        DaemonClientError(message: message.error ?? "Daemon stream chunk failed")))
+                return true
+            case .done:
+                return false
+            }
+        }
+    }
+
+    private static func yieldAudio(
+        _ message: SynthesisStreamMessage,
+        from fd: Int32,
+        to continuation: AsyncStream<TimedSpeakEvent>.Continuation
+    ) -> Bool {
+        guard let sampleCount = message.sampleCount, sampleCount >= 0 else {
+            continuation.yield(
+                .chunkFailed(DaemonClientError(message: "Daemon stream audio missing sample count")))
+            return false
+        }
+        guard let samples = LengthPrefixedIO.readRawSamples(count: sampleCount, from: fd) else {
+            continuation.yield(
+                .chunkFailed(DaemonClientError(message: "Failed to read stream audio data")))
+            return false
+        }
+        guard !samples.isEmpty else { return true }
+        guard let buffer = KokoroEngine.makePCMBuffer(from: samples, format: KokoroEngine.audioFormat)
+        else {
+            continuation.yield(
+                .chunkFailed(DaemonClientError(message: "Failed to create stream audio buffer")))
+            return false
+        }
+        continuation.yield(.audio(buffer, timestamps: message.timestamps ?? []))
         return true
     }
 

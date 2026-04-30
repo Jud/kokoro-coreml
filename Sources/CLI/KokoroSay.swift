@@ -73,7 +73,7 @@ struct Say: AsyncParsableCommand {
     }
 
     mutating func run() async throws {
-        if stream && output == nil {
+        if stream {
             // Streaming needs async for the AVAudioPlayerNode await.
             // speak() runs CoreML inference on its own internal Task.
             try await executeStreaming()
@@ -106,42 +106,24 @@ struct Say: AsyncParsableCommand {
 
         let inputText = try resolveText()
 
-        if !debug && !ipa {
-            let request = SynthesisRequest(
-                text: inputText, voice: voice, speed: speed)
-            switch DaemonClient.synthesize(request) {
-            case .success(let response, let samples):
-                let duration = Double(samples.count) / KokoroEngine.audioFormat.sampleRate
-                let synthTime = response.synthesisTime ?? 0
-                let rt = synthTime > 0 ? duration / synthTime : 0
-                let stats = String(
-                    format: "%.0fms synth, %.1fs audio, %.1fx RT",
-                    synthTime * 1000, duration, rt)
-                print("[\(voice) daemon] \(stats)")
-                if let output {
-                    try writeWAV(samples: samples, to: output)
-                    print("Wrote \(output)")
-                }
-                if play || output == nil {
-                    try playAudioWithText(
-                        samples: samples, timestamps: response.timestamps ?? [])
-                }
-                return
-            case .daemonError(let message):
-                fputs("Daemon error: \(message)\n", stderr)
-                throw ExitCode.failure
-            case .unavailable:
-                break
+        if let daemonResult = try daemonSynthesis(for: inputText) {
+            let response = daemonResult.response
+            let samples = daemonResult.samples
+            let duration = Double(samples.count) / KokoroEngine.audioFormat.sampleRate
+            let stats = statsLine(synthesisTime: response.synthesisTime ?? 0, duration: duration)
+            print("[\(voice) daemon] \(stats)")
+            if let output {
+                try writeWAV(samples: samples, to: output)
+                print("Wrote \(output)")
             }
+            if play || output == nil {
+                try playAudioWithText(samples: samples, timestamps: response.timestamps ?? [])
+            }
+            return
         }
 
         let engine = try loadEngine()
-
-        guard engine.availableVoices.contains(voice) else {
-            fputs("Unknown voice '\(voice)'. Available:\n", stderr)
-            for v in engine.availableVoices.sorted() { fputs("  \(v)\n", stderr) }
-            throw ExitCode.failure
-        }
+        try validateVoice(with: engine)
 
         if debug {
             let dir = modelDir.map { URL(fileURLWithPath: $0) } ?? KokoroEngine.defaultModelDirectory
@@ -159,10 +141,7 @@ struct Say: AsyncParsableCommand {
 
         if debug { printDebugInfo(result: result) }
 
-        let stats = String(
-            format: "%.0fms synth, %.1fs audio, %.1fx RT",
-            result.synthesisTime * 1000, result.duration, result.realTimeFactor
-        )
+        let stats = statsLine(synthesisTime: result.synthesisTime, duration: result.duration)
         print("[\(voice)] \(stats)")
         if let output {
             try writeWAV(samples: result.samples, to: output)
@@ -186,32 +165,67 @@ struct Say: AsyncParsableCommand {
     private func executeStreaming() async throws {
         let inputText = try resolveText()
 
-        if !debug {
-            let request = SynthesisRequest(
-                text: inputText, voice: voice, speed: speed,
-                stream: true, includeTimestamps: showText)
-            switch DaemonClient.stream(request) {
-            case .success(let events):
-                try await streamPlayback(events: events, voice: voice, showText: showText, source: "daemon")
-                return
-            case .daemonError(let message):
-                fputs("Daemon error: \(message)\n", stderr)
-                throw ExitCode.failure
-            case .unavailable:
-                break
-            }
+        if let events = try daemonStream(for: inputText) {
+            try await streamPlayback(
+                events: events, voice: voice, showText: showText, source: "daemon")
+            return
         }
 
         let engine = try loadEngine()
+        try validateVoice(with: engine)
+
+        let events = try engine.speakWithTimestamps(inputText, voice: voice, speed: speed)
+        try await streamPlayback(
+            events: events, voice: voice, showText: showText, source: nil)
+    }
+
+    private func daemonSynthesis(
+        for inputText: String
+    ) throws -> (response: SynthesisResponse, samples: [Float])? {
+        guard !debug && !ipa else { return nil }
+
+        let request = SynthesisRequest(text: inputText, voice: voice, speed: speed)
+        switch DaemonClient.synthesize(request) {
+        case .success(let response, let samples):
+            return (response, samples)
+        case .daemonError(let message):
+            fputs("Daemon error: \(message)\n", stderr)
+            throw ExitCode.failure
+        case .unavailable:
+            return nil
+        }
+    }
+
+    private func daemonStream(for inputText: String) throws -> AsyncStream<TimedSpeakEvent>? {
+        guard !debug else { return nil }
+
+        let request = SynthesisRequest(
+            text: inputText, voice: voice, speed: speed,
+            stream: true, includeTimestamps: showText)
+        switch DaemonClient.stream(request) {
+        case .success(let events):
+            return events
+        case .daemonError(let message):
+            fputs("Daemon error: \(message)\n", stderr)
+            throw ExitCode.failure
+        case .unavailable:
+            return nil
+        }
+    }
+
+    private func validateVoice(with engine: KokoroEngine) throws {
         guard engine.availableVoices.contains(voice) else {
             fputs("Unknown voice '\(voice)'. Available:\n", stderr)
             for v in engine.availableVoices.sorted() { fputs("  \(v)\n", stderr) }
             throw ExitCode.failure
         }
+    }
 
-        let events = try engine.speakWithTimestamps(inputText, voice: voice, speed: speed)
-        try await streamPlayback(
-            events: events, voice: voice, showText: showText, source: nil)
+    private func statsLine(synthesisTime: Double, duration: Double) -> String {
+        let rt = synthesisTime > 0 ? duration / synthesisTime : 0
+        return String(
+            format: "%.0fms synth, %.1fs audio, %.1fx RT",
+            synthesisTime * 1000, duration, rt)
     }
 
     // MARK: - Input
