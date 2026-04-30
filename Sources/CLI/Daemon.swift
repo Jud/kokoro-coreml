@@ -1,3 +1,4 @@
+import AVFoundation
 import ArgumentParser
 import Foundation
 import KokoroCoreML
@@ -272,13 +273,24 @@ private func handleClient(fd: Int32, engine: KokoroEngine) {
     }
 
     if request.version != DaemonConfig.protocolVersion {
-        _ = DaemonIO.writeMessage(
-            SynthesisResponse(
-                ok: false,
-                error:
-                    "Protocol mismatch: client v\(request.version), daemon v\(DaemonConfig.protocolVersion). "
-                    + "Run `kokoro daemon restart` to update."),
-            to: fd)
+        let error =
+            "Protocol mismatch: client v\(request.version), daemon v\(DaemonConfig.protocolVersion). "
+            + "Run `kokoro daemon restart` to update."
+        if request.stream == true {
+            _ = DaemonIO.writeMessage(
+                SynthesisStreamMessage(kind: .chunkFailed, ok: false, error: error),
+                to: fd)
+            _ = DaemonIO.writeMessage(SynthesisStreamMessage(kind: .done, ok: true), to: fd)
+        } else {
+            _ = DaemonIO.writeMessage(
+                SynthesisResponse(ok: false, error: error),
+                to: fd)
+        }
+        return
+    }
+
+    if request.stream == true {
+        handleStreamClient(fd: fd, request: request, engine: engine)
         return
     }
 
@@ -301,4 +313,62 @@ private func handleClient(fd: Int32, engine: KokoroEngine) {
         _ = DaemonIO.writeMessage(
             SynthesisResponse(ok: false, error: error.localizedDescription), to: fd)
     }
+}
+
+private func handleStreamClient(fd: Int32, request: SynthesisRequest, engine: KokoroEngine) {
+    do {
+        let stream = try engine.speakWithTimestamps(
+            request.text, voice: request.voice, speed: request.speed)
+        let includeTimestamps = request.includeTimestamps == true
+        let done = DispatchSemaphore(value: 0)
+
+        Task {
+            for await event in stream {
+                switch event {
+                case .audio(let buffer, let timestamps):
+                    let samples = samples(from: buffer)
+                    let message = SynthesisStreamMessage(
+                        kind: .audio,
+                        ok: true,
+                        sampleCount: samples.count,
+                        timestamps: includeTimestamps ? timestamps : nil)
+                    guard DaemonIO.writeMessage(message, to: fd) else {
+                        done.signal()
+                        return
+                    }
+                    guard LengthPrefixedIO.writeRawSamples(samples, to: fd) else {
+                        done.signal()
+                        return
+                    }
+                case .chunkFailed(let error):
+                    guard DaemonIO.writeMessage(
+                        SynthesisStreamMessage(
+                            kind: .chunkFailed,
+                            ok: false,
+                            error: error.localizedDescription),
+                        to: fd)
+                    else {
+                        done.signal()
+                        return
+                    }
+                }
+            }
+
+            _ = DaemonIO.writeMessage(SynthesisStreamMessage(kind: .done, ok: true), to: fd)
+            done.signal()
+        }
+
+        done.wait()
+    } catch {
+        _ = DaemonIO.writeMessage(
+            SynthesisStreamMessage(kind: .chunkFailed, ok: false, error: error.localizedDescription),
+            to: fd)
+        _ = DaemonIO.writeMessage(SynthesisStreamMessage(kind: .done, ok: true), to: fd)
+    }
+}
+
+private func samples(from buffer: AVAudioPCMBuffer) -> [Float] {
+    let frameCount = Int(buffer.frameLength)
+    guard frameCount > 0, let channel = buffer.floatChannelData?[0] else { return [] }
+    return Array(UnsafeBufferPointer(start: channel, count: frameCount))
 }

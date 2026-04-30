@@ -8,7 +8,7 @@ enum DaemonConfig {
     static let pidPath = basePath + ".pid"
 
     /// Increment when the wire format changes.
-    static let protocolVersion: Int = 2
+    static let protocolVersion: Int = 3
 }
 
 struct SynthesisRequest: Codable {
@@ -16,6 +16,8 @@ struct SynthesisRequest: Codable {
     var text: String
     var voice: String
     var speed: Float
+    var stream: Bool?
+    var includeTimestamps: Bool?
 }
 
 struct SynthesisResponse: Codable {
@@ -26,6 +28,21 @@ struct SynthesisResponse: Codable {
     var synthesisTime: Double?
     var phonemes: String?
     var tokenCount: Int?
+    var timestamps: [SynthesisTimestamp]?
+}
+
+enum SynthesisStreamMessageKind: String, Codable {
+    case audio
+    case chunkFailed
+    case done
+}
+
+struct SynthesisStreamMessage: Codable {
+    var version: Int = DaemonConfig.protocolVersion
+    var kind: SynthesisStreamMessageKind
+    var ok: Bool
+    var error: String?
+    var sampleCount: Int?
     var timestamps: [SynthesisTimestamp]?
 }
 
@@ -130,13 +147,21 @@ enum UnixSocket {
 enum LengthPrefixedIO {
     static func writeBytes(_ bytes: [UInt8], to fd: Int32) -> Bool {
         guard writeLengthHeader(bytes.count, to: fd) else { return false }
-        return bytes.withUnsafeBytes { writeFully(fd: fd, from: $0.baseAddress!, count: bytes.count) }
+        guard !bytes.isEmpty else { return true }
+        return bytes.withUnsafeBytes {
+            guard let baseAddress = $0.baseAddress else { return false }
+            return writeFully(fd: fd, from: baseAddress, count: bytes.count)
+        }
     }
 
     static func writeRawSamples(_ samples: [Float], to fd: Int32) -> Bool {
         let byteCount = samples.count * MemoryLayout<Float>.size
         guard writeLengthHeader(byteCount, to: fd) else { return false }
-        return samples.withUnsafeBytes { writeFully(fd: fd, from: $0.baseAddress!, count: byteCount) }
+        guard !samples.isEmpty else { return true }
+        return samples.withUnsafeBytes {
+            guard let baseAddress = $0.baseAddress else { return false }
+            return writeFully(fd: fd, from: baseAddress, count: byteCount)
+        }
     }
 
     static func readRawSamples(count: Int, from fd: Int32) -> [Float]? {
@@ -147,6 +172,7 @@ enum LengthPrefixedIO {
         guard headerRead else { return nil }
         let byteCount = Int(UInt32(bigEndian: lengthBE))
         guard byteCount == count * MemoryLayout<Float>.size else { return nil }
+        guard count > 0 else { return [] }
         var samples = [Float](repeating: 0, count: count)
         let ok = samples.withUnsafeMutableBytes { buf in
             readFully(fd: fd, into: buf.baseAddress!, count: byteCount)

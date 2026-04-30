@@ -1,9 +1,23 @@
+import AVFoundation
+import CBOR
 import Foundation
+import KokoroCoreML
 
 enum DaemonResult {
     case success(SynthesisResponse, [Float])
     case daemonError(String)
     case unavailable
+}
+
+enum DaemonStreamResult {
+    case success(AsyncStream<TimedSpeakEvent>)
+    case daemonError(String)
+    case unavailable
+}
+
+private struct DaemonClientError: LocalizedError {
+    let message: String
+    var errorDescription: String? { message }
 }
 
 enum DaemonClient {
@@ -38,11 +52,94 @@ enum DaemonClient {
         return .success(response, samples)
     }
 
+    /// Try to stream synthesized audio via the daemon.
+    /// Returns .unavailable if daemon isn't running.
+    static func stream(_ request: SynthesisRequest) -> DaemonStreamResult {
+        let fd = UnixSocket.connect(to: DaemonConfig.socketPath)
+        guard fd >= 0 else { return .unavailable }
+
+        guard DaemonIO.writeMessage(request, to: fd) else {
+            close(fd)
+            return .daemonError("Failed to send request")
+        }
+
+        return .success(
+            AsyncStream { continuation in
+                let thread = Thread {
+                    defer {
+                        close(fd)
+                        continuation.finish()
+                    }
+
+                    while !Thread.current.isCancelled {
+                        guard let result = readStreamMessage(from: fd) else {
+                            continuation.yield(
+                                .chunkFailed(DaemonClientError(message: "Failed to read stream event")))
+                            return
+                        }
+
+                        switch result {
+                        case .success(let message):
+                            switch message.kind {
+                            case .audio:
+                                guard let sampleCount = message.sampleCount, sampleCount >= 0 else {
+                                    continue
+                                }
+                                guard let samples = LengthPrefixedIO.readRawSamples(
+                                    count: sampleCount, from: fd)
+                                else {
+                                    continuation.yield(
+                                        .chunkFailed(
+                                            DaemonClientError(message: "Failed to read stream audio data")))
+                                    return
+                                }
+                                guard !samples.isEmpty else { continue }
+                                if let buffer = KokoroEngine.makePCMBuffer(
+                                    from: samples, format: KokoroEngine.audioFormat)
+                                {
+                                    continuation.yield(
+                                        .audio(buffer, timestamps: message.timestamps ?? []))
+                                }
+                            case .chunkFailed:
+                                continuation.yield(
+                                    .chunkFailed(
+                                        DaemonClientError(
+                                            message: message.error ?? "Daemon stream chunk failed")))
+                            case .done:
+                                return
+                            }
+                        case .failure(let error):
+                            continuation.yield(.chunkFailed(error))
+                            return
+                        }
+                    }
+                }
+                thread.stackSize = 512 * 1024
+                thread.start()
+            })
+    }
+
     /// Check if daemon is running by attempting a socket connect.
     static func isRunning() -> Bool {
         let fd = UnixSocket.connect(to: DaemonConfig.socketPath)
         guard fd >= 0 else { return false }
         close(fd)
         return true
+    }
+
+    private static func readStreamMessage(
+        from fd: Int32
+    ) -> Result<SynthesisStreamMessage, DaemonClientError>? {
+        guard let bytes = LengthPrefixedIO.readBytes(from: fd) else { return nil }
+        let decoder = CBORDecoder()
+        if let message = try? decoder.decode(SynthesisStreamMessage.self, from: bytes) {
+            return .success(message)
+        }
+        if let response = try? decoder.decode(SynthesisResponse.self, from: bytes) {
+            return .failure(
+                DaemonClientError(
+                    message: response.error ?? "Daemon returned a non-stream response"))
+        }
+        return nil
     }
 }

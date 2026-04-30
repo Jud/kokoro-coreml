@@ -200,17 +200,34 @@ struct Say: AsyncParsableCommand {
     }
 
     private func executeStreaming() async throws {
-        let engine = try loadEngine()
         let inputText = try resolveText()
 
+        if !debug {
+            let request = SynthesisRequest(
+                text: inputText, voice: voice, speed: speed,
+                stream: true, includeTimestamps: showText)
+            switch DaemonClient.stream(request) {
+            case .success(let events):
+                try await streamPlayback(events: events, voice: voice, showText: showText, source: "daemon")
+                return
+            case .daemonError(let message):
+                fputs("Daemon error: \(message)\n", stderr)
+                throw ExitCode.failure
+            case .unavailable:
+                break
+            }
+        }
+
+        let engine = try loadEngine()
         guard engine.availableVoices.contains(voice) else {
             fputs("Unknown voice '\(voice)'. Available:\n", stderr)
             for v in engine.availableVoices.sorted() { fputs("  \(v)\n", stderr) }
             throw ExitCode.failure
         }
 
+        let events = try engine.speakWithTimestamps(inputText, voice: voice, speed: speed)
         try await streamPlayback(
-            engine: engine, text: inputText, voice: voice, showText: showText)
+            events: events, voice: voice, showText: showText, source: nil)
     }
 
     // MARK: - Input
@@ -290,20 +307,22 @@ struct Say: AsyncParsableCommand {
     // MARK: - Streaming
 
     private func streamPlayback(
-        engine: KokoroEngine, text: String, voice: String, showText: Bool
+        events: AsyncStream<TimedSpeakEvent>, voice: String, showText: Bool, source: String?
     ) async throws {
         let (audioEngine, player) = try startAudioPlayer()
         defer { audioEngine.stop() }
 
         let printer = showText ? LiveTextPrinter(player: player) : nil
         defer { printer?.finish() }
+        let label = source.map { "[\(voice) \($0)]" } ?? "[\(voice)]"
 
         let t0 = CFAbsoluteTimeGetCurrent()
         var chunks = 0
         var totalFrames: AVAudioFrameCount = 0
         var reportedFirst = false
+        var firstFailure: (any Error)?
 
-        for await event in try engine.speakWithTimestamps(text, voice: voice, speed: speed) {
+        for await event in events {
             switch event {
             case .audio(let buffer, let timestamps):
                 chunks += 1
@@ -313,12 +332,15 @@ struct Say: AsyncParsableCommand {
                 if !reportedFirst {
                     reportedFirst = true
                     let latency = CFAbsoluteTimeGetCurrent() - t0
-                    print("[\(voice)] first audio in \(Int(latency * 1000))ms")
+                    print("\(label) first audio in \(Int(latency * 1000))ms")
                     printer?.start()
                     player.play()
                 }
             case .chunkFailed(let error):
-                fputs("[\(voice)] chunk failed: \(error.localizedDescription)\n", stderr)
+                if firstFailure == nil {
+                    firstFailure = error
+                }
+                fputs("\(label) chunk failed: \(error.localizedDescription)\n", stderr)
             }
         }
 
@@ -328,13 +350,16 @@ struct Say: AsyncParsableCommand {
         let durStr = String(format: "%.1f", duration)
 
         guard reportedFirst else {
-            print("[\(voice)] \(chunks) chunks, \(durStr)s audio, \(synthMs)ms total synth")
+            print("\(label) \(chunks) chunks, \(durStr)s audio, \(synthMs)ms total synth")
+            if let firstFailure {
+                throw firstFailure
+            }
             return
         }
 
         await player.scheduleBuffer(makeSentinelBuffer())
         printer?.finish()
-        print("[\(voice)] \(chunks) chunks, \(durStr)s audio, \(synthMs)ms total synth")
+        print("\(label) \(chunks) chunks, \(durStr)s audio, \(synthMs)ms total synth")
         try await Task.sleep(for: .milliseconds(100))
     }
 
