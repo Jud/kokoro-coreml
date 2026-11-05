@@ -52,6 +52,15 @@ struct G2PTests {
         #expect(phonemes.contains("—"))
     }
 
+    @Test("A sentence's period after a number is a stop, not swallowed by the number")
+    func periodAfterNumber() {
+        let g2p = makeG2P()
+        let (phonemes, _) = g2p.phonemize(text: "Curveball, 71. 9 inches of drop.")
+        #expect(phonemes.contains("wˈʌn."))
+        let (decimal, _) = g2p.phonemize(text: "It broke 7.9 inches.")
+        #expect(decimal.contains("pYnt"))
+    }
+
     @Test("plugin resolves from the lexicon, not the OOV fallback")
     func plugin() {
         let g2p = makeG2P()

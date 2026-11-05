@@ -247,6 +247,21 @@ final class EnglishG2P {
                 let word = String(preprocessedText.text[tokenRange])
                 if tag == .whitespace, let lastToken = mutableTokens.last {
                     lastToken.whitespace = word
+                } else if tag == .otherWord, word.count > 1, word.first?.isNumber == true, word.last == ".",
+                    word.dropLast().allSatisfy({ $0.isNumber || $0 == "." || $0 == "," })
+                {
+                    // NLTagger keeps a sentence's period on the number before it ("71.");
+                    // read as a number, the period would vanish and the next sentence run
+                    // into it. Split it off, as NLTagger does after a word.
+                    let dot = preprocessedText.text.index(before: tokenRange.upperBound)
+                    mutableTokens.append(
+                        MToken(
+                            text: String(word.dropLast()), tokenRange: tokenRange.lowerBound..<dot,
+                            tag: .number, whitespace: ""))
+                    mutableTokens.append(
+                        MToken(
+                            text: ".", tokenRange: dot..<tokenRange.upperBound,
+                            tag: .sentenceTerminator, whitespace: ""))
                 } else {
                     mutableTokens.append(
                         MToken(
