@@ -197,6 +197,10 @@ public final class KokoroEngine: @unchecked Sendable {
             engine.loadAndWarmUp(frontendURL: fePath, backendURL: bePath)
         }
         thread.stackSize = 8 * 1024 * 1024
+        // synthesize() blocks on this load (awaitModels). Callers are usually
+        // user-initiated; a default-QoS loader under them is a priority
+        // inversion that nothing boosts across the condition variable.
+        thread.qualityOfService = .userInitiated
         thread.start()
     }
 
@@ -531,6 +535,8 @@ public final class KokoroEngine: @unchecked Sendable {
             beSem.signal()
         }
         beThread.stackSize = 8 * 1024 * 1024
+        // The loader thread waits on this one, so it runs at the same QoS.
+        beThread.qualityOfService = .userInitiated
         beThread.start()
 
         // Load frontend on this thread
